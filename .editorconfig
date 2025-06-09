@@ -1,0 +1,12 @@
+# EditorConfig is awesome: http://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+[*.go]
+indent_style = tab
+indent_size = 8
+
+[*.yaml, *.yml]
+indent_style = space
+indent_size = 2
