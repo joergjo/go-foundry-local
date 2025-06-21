@@ -11,7 +11,8 @@ import (
 )
 
 func main() {
-	alias := "phi-3.5-mini"
+	alias := "qwen2.5-1.5b"
+
 	m, err := foundrylocal.StartModel(context.Background(), alias)
 	if err != nil {
 		panic(err)
