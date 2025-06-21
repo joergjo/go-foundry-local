@@ -61,7 +61,7 @@ func main() {
 
 	// Prepare the chat completion request.
 	completion := completionRequest{
-		Model: modelInfo.ModelID,
+		Model: modelInfo.ID,
 		Messages: []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`

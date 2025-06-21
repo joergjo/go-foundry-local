@@ -41,7 +41,7 @@ func main() {
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(question),
 		},
-		Model: shared.ChatModel(modelInfo.ModelID),
+		Model: shared.ChatModel(modelInfo.ID),
 		Seed:  openai.Int(0),
 	}
 

@@ -27,8 +27,8 @@ type ModelSettings struct {
 // ModelInfo contains comprehensive information about a model available in Foundry Local.
 // This includes metadata, runtime requirements, licensing information, and download details.
 type ModelInfo struct {
-	// ModelID is the unique identifier for the model.
-	ModelID string `json:"name"`
+	// ID is the unique identifier for the model.
+	ID string `json:"name"`
 	// DisplayName is the human-readable name of the model.
 	DisplayName string `json:"displayName"`
 	// ProviderType indicates the model provider (e.g., "Microsoft", "Meta").

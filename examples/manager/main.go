@@ -84,7 +84,7 @@ func main() {
 		fmt.Println("   • First few models:")
 		index := min(3, len(catalogModels))
 		for i, model := range catalogModels[:index] {
-			fmt.Printf("     %d. %s (%s) - %s\n", i+1, model.DisplayName, model.ModelID, model.ProviderType)
+			fmt.Printf("     %d. %s (%s) - %s\n", i+1, model.DisplayName, model.ID, model.ProviderType)
 		}
 		if len(catalogModels) > 3 {
 			fmt.Printf("     ... and %d more\n", len(catalogModels)-3)
@@ -104,10 +104,10 @@ func main() {
 			fmt.Printf("   ⚠ Error checking model %s: %v\n", modelName, err)
 			continue
 		}
-		if modelInfo.ModelID != "" {
+		if modelInfo.ID != "" {
 			targetModel = modelName
 			fmt.Printf("   ✓ Found model: %s\n", modelInfo.DisplayName)
-			fmt.Printf("     • ID: %s\n", modelInfo.ModelID)
+			fmt.Printf("     • ID: %s\n", modelInfo.ID)
 			fmt.Printf("     • Provider: %s\n", modelInfo.ProviderType)
 			fmt.Printf("     • Size: %d MB\n", modelInfo.FileSizeMb)
 			fmt.Printf("     • Execution Provider: %s\n", modelInfo.Runtime.ExecutionProvider)
@@ -119,7 +119,7 @@ func main() {
 	if targetModel == "" {
 		// Fallback to first available model
 		if len(catalogModels) > 0 {
-			targetModel = catalogModels[0].ModelID
+			targetModel = catalogModels[0].ID
 			fmt.Printf("   • Using first available model: %s\n", targetModel)
 		} else {
 			log.Fatal("No models available in catalog")
@@ -136,7 +136,7 @@ func main() {
 		if len(cachedModels) > 0 {
 			fmt.Println("   • Cached models:")
 			for _, model := range cachedModels {
-				fmt.Printf("     - %s (%s)\n", model.DisplayName, model.ModelID)
+				fmt.Printf("     - %s (%s)\n", model.DisplayName, model.ID)
 			}
 		}
 	}
@@ -147,7 +147,7 @@ func main() {
 	// Check if model is already cached
 	isCached := false
 	for _, model := range cachedModels {
-		if model.ModelID == targetModel {
+		if model.ID == targetModel {
 			isCached = true
 			break
 		}
@@ -195,7 +195,7 @@ func main() {
 		if len(loadedModels) > 0 {
 			fmt.Println("   • Loaded models:")
 			for _, model := range loadedModels {
-				fmt.Printf("     - %s (%s)\n", model.DisplayName, model.ModelID)
+				fmt.Printf("     - %s (%s)\n", model.DisplayName, model.ID)
 			}
 		}
 	}
@@ -206,7 +206,7 @@ func main() {
 	// Check if target model is already loaded
 	isLoaded := false
 	for _, model := range loadedModels {
-		if model.ModelID == targetModel {
+		if model.ID == targetModel {
 			isLoaded = true
 			break
 		}

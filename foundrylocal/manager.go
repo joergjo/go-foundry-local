@@ -218,7 +218,7 @@ func StartModel(ctx context.Context, aliasorModelID string) (*Manager, error) {
 		return nil, err
 	}
 
-	if _, err := m.DownloadModel(ctx, modelInfo.ModelID); err != nil {
+	if _, err := m.DownloadModel(ctx, modelInfo.ID); err != nil {
 		return nil, err
 	}
 
@@ -490,13 +490,13 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 		return ModelInfo{}, err
 	}
 	if slices.ContainsFunc(localModels, matchAliasOrId(aliasorModelID)) && !config.force {
-		m.Logger.InfoContext(ctx, "model already exists locally", "alias", modelInfo.Alias, "modelID", modelInfo.ModelID)
+		m.Logger.InfoContext(ctx, "model already exists locally", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
 		return modelInfo, nil
 	}
 
 	request := DownloadRequest{
 		Model: DownloadRequestModelInfo{
-			Name:           modelInfo.ModelID,
+			Name:           modelInfo.ID,
 			URI:            modelInfo.URI,
 			ProviderType:   modelInfo.ProviderType + "Local",
 			PromptTemplate: modelInfo.PromptTemplate,
@@ -516,7 +516,7 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	m.Logger.InfoContext(ctx, "downloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ModelID)
+	m.Logger.InfoContext(ctx, "downloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return ModelInfo{}, err
@@ -598,7 +598,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 		return ModelInfo{}, fmt.Errorf("model %s not found in local models, download first", aliasOrModelID)
 	}
 
-	endpoint := *m.serviceURL.JoinPath("openai", "load", modelInfo.ModelID)
+	endpoint := *m.serviceURL.JoinPath("openai", "load", modelInfo.ID)
 
 	params := url.Values{}
 	params.Set("ttl", fmt.Sprintf("%d", int64(config.timeout.Seconds())))
@@ -615,7 +615,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 	}
 
 	endpoint.RawQuery = params.Encode()
-	m.Logger.InfoContext(ctx, "loading model", "alias", modelInfo.Alias, "modelID", modelInfo.ModelID)
+	m.Logger.InfoContext(ctx, "loading model", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
 	resp, err := m.client.Get(endpoint.String())
 	if err != nil {
 		return ModelInfo{}, err
@@ -693,7 +693,7 @@ func (m *Manager) DownloadModelWithProgress(ctx context.Context, aliasOrModelID 
 
 		payload := DownloadRequest{
 			Model: DownloadRequestModelInfo{
-				Name:           modelInfo.ModelID,
+				Name:           modelInfo.ID,
 				URI:            modelInfo.URI,
 				ProviderType:   modelInfo.ProviderType + "Local",
 				PromptTemplate: modelInfo.PromptTemplate,
@@ -852,11 +852,11 @@ func (m *Manager) UnloadModel(ctx context.Context, aliasOrModelID string) error 
 		return err
 	}
 
-	endpoint := m.serviceURL.JoinPath("openai", "unload", modelInfo.ModelID)
+	endpoint := m.serviceURL.JoinPath("openai", "unload", modelInfo.ID)
 	params := url.Values{}
 	params.Set("force", "true")
 	endpoint.RawQuery = params.Encode()
-	m.Logger.InfoContext(ctx, "unloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ModelID)
+	m.Logger.InfoContext(ctx, "unloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
 	resp, err := m.client.Get(endpoint.String())
 	if err != nil {
 		return err
@@ -896,7 +896,7 @@ func (m *Manager) getCatalogMap(ctx context.Context) (map[string]ModelInfo, erro
 	}
 
 	for _, model := range models {
-		miMap[model.ModelID] = model
+		miMap[model.ID] = model
 		if model.Alias != "" {
 			existing, ok := miMap[model.Alias]
 			if !ok {
@@ -959,7 +959,7 @@ func (m *Manager) invokeFoundry(ctx context.Context, args string) (string, error
 
 func matchAliasOrId(aliasOrModelID string) func(modelInfo ModelInfo) bool {
 	return func(modelInfo ModelInfo) bool {
-		return strings.EqualFold(modelInfo.ModelID, aliasOrModelID) ||
+		return strings.EqualFold(modelInfo.ID, aliasOrModelID) ||
 			strings.EqualFold(modelInfo.Alias, aliasOrModelID)
 	}
 }

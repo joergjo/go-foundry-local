@@ -64,7 +64,7 @@ func TestListCatalogModel(t *testing.T) {
 	if got, want := len(result), 1; got != want {
 		t.Errorf("got %d models, want %d", got, want)
 	}
-	if got, want := result[0].ModelID, "testModel"; got != want {
+	if got, want := result[0].ID, "testModel"; got != want {
 		t.Errorf("got model ID %q, want %q", got, want)
 	}
 }
@@ -91,7 +91,7 @@ func TestRefreshCatalog(t *testing.T) {
 // handles cases where models are not found.
 func TestGetModelInfo(t *testing.T) {
 	model := ModelInfo{
-		ModelID:      "test-model-id",
+		ID:           "test-model-id",
 		Alias:        "test-alias",
 		URI:          "http://example.com",
 		ProviderType: "huggingface",
@@ -133,8 +133,8 @@ func TestGetModelInfo(t *testing.T) {
 			if got, want := err, tc.err; got != want {
 				t.Fatalf("got error: %v, want: %v", err, tc.err)
 			}
-			if got, want := result.ModelID, tc.wantModelID; got != want {
-				t.Errorf("got model ID %q, want %q", result.ModelID, tc.wantModelID)
+			if got, want := result.ID, tc.wantModelID; got != want {
+				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
 	}
@@ -210,8 +210,8 @@ func TestGetModelInfoCUDAPriority(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to get model Info for %q: %v", tc.aliasOrModelID, err)
 			}
-			if got := result.ModelID; got != tc.wantModelID {
-				t.Errorf("got model name %q, want %q", got, tc.wantModelID)
+			if got, want := result.ID, tc.wantModelID; got != want {
+				t.Errorf("got model name %q, want %q", got, want)
 			}
 		})
 	}
@@ -274,8 +274,8 @@ func TestGetModelInfoQNNPriority(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to get model Info for %q: %v", tc.aliasOrModelID, err)
 			}
-			if got := result.ModelID; got != tc.wantModelID {
-				t.Errorf("got model name %q, want %q", got, tc.wantModelID)
+			if got, want := result.ID, tc.wantModelID; got != want {
+				t.Errorf("got model name %q, want %q", got, want)
 			}
 		})
 	}
@@ -322,7 +322,7 @@ func TestListCacheModels(t *testing.T) {
 	m.client = srv.Client()
 	m.catalogModels = []ModelInfo{
 		{
-			ModelID:      "model1",
+			ID:           "model1",
 			Alias:        "alias",
 			URI:          "http://model",
 			ProviderType: "huggingface",
@@ -336,7 +336,7 @@ func TestListCacheModels(t *testing.T) {
 	if got, want := len(result), 1; got != want {
 		t.Errorf("got %d models, want %d", got, want)
 	}
-	if got, want := result[0].ModelID, "model1"; got != want {
+	if got, want := result[0].ID, "model1"; got != want {
 		t.Errorf("got model ID %q, want %q", got, want)
 	}
 }
@@ -358,7 +358,7 @@ func TestDownloadModel(t *testing.T) {
 
 	modelID := "test-model"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "alias1",
 		URI:          "http://model.uri",
 		ProviderType: "openai",
@@ -405,7 +405,7 @@ func TestDownloadModel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to download model: %v", err)
 			}
-			if got, want := result.ModelID, tc.modelID; got != want {
+			if got, want := result.ID, tc.modelID; got != want {
 				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
@@ -418,7 +418,7 @@ func TestDownloadModel(t *testing.T) {
 func TestLoadModel(t *testing.T) {
 	modelID := "modelX"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "aliasX",
 		URI:          "http://model",
 		ProviderType: "openai",
@@ -475,7 +475,7 @@ func TestLoadModel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load model: %v", err)
 			}
-			if got, want := result.ModelID, modelID; got != want {
+			if got, want := result.ID, modelID; got != want {
 				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
@@ -488,7 +488,7 @@ func TestLoadModel(t *testing.T) {
 func TestListLoadedModels(t *testing.T) {
 	modelID := "modelX"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "aliasX",
 		URI:          "http://model",
 		ProviderType: "openai",
@@ -546,7 +546,7 @@ func TestListLoadedModels(t *testing.T) {
 			if tc.wantLen == 0 {
 				return
 			}
-			if got, want := result[0].ModelID, modelID; got != want {
+			if got, want := result[0].ID, modelID; got != want {
 				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
@@ -559,7 +559,7 @@ func TestListLoadedModels(t *testing.T) {
 func TestUnloadModel(t *testing.T) {
 	modelID := "modelY"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "aliasY",
 		URI:          "http://model",
 		ProviderType: "huggingface",
@@ -598,7 +598,7 @@ func TestUnloadModel(t *testing.T) {
 func TestDownloadModelWithProgressDownload(t *testing.T) {
 	modelID := "test-model"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "alias1",
 		URI:          "http://model.uri",
 		ProviderType: "openai",
@@ -659,7 +659,7 @@ func TestDownloadModelWithProgressDownload(t *testing.T) {
 		if got, want := progress.IsCompleted, want[i].isCompleted; got != want {
 			t.Errorf("got isCompleted %v, want %v", got, want)
 		}
-		if got, want := progress.ModelInfo.ModelID, want[i].modelInfo.ModelID; got != want {
+		if got, want := progress.ModelInfo.ID, want[i].modelInfo.ID; got != want {
 			t.Errorf("got model ID %q, want %q", got, want)
 		}
 		if got, want := progress.ErrorMessage, want[i].errorMessage; got != want {
@@ -674,7 +674,7 @@ func TestDownloadModelWithProgressDownload(t *testing.T) {
 func TestDownloadModelWithProgressExistingModel(t *testing.T) {
 	modelID := "existing-model"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "alias1",
 		URI:          "http://model.uri",
 		ProviderType: "openai",
@@ -720,7 +720,7 @@ func TestDownloadModelWithProgressExistingModel(t *testing.T) {
 	if got, want := !progressList[0].IsCompleted, false; got != want {
 		t.Errorf("got isCompleted %v, want %v", got, want)
 	}
-	if got, want := progressList[0].ModelInfo.ModelID, modelID; got != want {
+	if got, want := progressList[0].ModelInfo.ID, modelID; got != want {
 		t.Errorf("got model ID %q, want %q", got, want)
 	}
 	if got, want := progressList[0].ErrorMessage, ""; got != want {
@@ -734,7 +734,7 @@ func TestDownloadModelWithProgressExistingModel(t *testing.T) {
 func TestDownloadModelWithProgressError(t *testing.T) {
 	modelID := "test-model"
 	model := ModelInfo{
-		ModelID:      modelID,
+		ID:           modelID,
 		Alias:        "alias1",
 		URI:          "http://model.uri",
 		ProviderType: "openai",

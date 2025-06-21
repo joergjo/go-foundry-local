@@ -52,7 +52,7 @@ func main() {
 
         fmt.Printf("Found %d models\n", len(models))
         for _, model := range models {
-                fmt.Printf("- %s (%s)\n", model.Alias, model.ModelID)
+                fmt.Printf("- %s (%s)\n", model.Alias, model.ID)
         }
 }
 ```
