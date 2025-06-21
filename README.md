@@ -26,34 +26,34 @@ go get github.com/joergjo/go-foundry-local/foundrylocal
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
+        "context"
+        "fmt"
+        "log"
 
-    "github.com/joergjo/go-foundry-local/foundrylocal"
+        "github.com/joergjo/go-foundry-local/foundrylocal"
 )
 
 func main() {
-    // Create a new manager
-    manager := foundrylocal.NewManager()
+	    // Create a new manager
+	    manager := foundrylocal.NewManager()
 
-    // Start the Foundry Local runtime
-    ctx := context.Background()
-    if err := manager.Start(ctx); err != nil {
-        log.Fatal("Failed to start Foundry Local:", err)
-    }
-    defer manager.Stop(ctx)
+	    // Start the Foundry Local runtime
+	    ctx := context.Background()
+	    if err := manager.StartService(ctx); err != nil {
+		        log.Fatal("Failed to start Foundry Local:", err)
+	    }
+	    defer manager.StopService(ctx)
 
-    // List available models
-    models, err := manager.ListModels(ctx)
-    if err != nil {
-        log.Fatal("Failed to list models:", err)
-    }
+        // List available models
+        models, err := manager.ListCatalogModels(ctx)
+        if err != nil {
+                log.Fatal("Failed to list models:", err)
+        }
 
-    fmt.Printf("Found %d models\n", len(models))
-    for _, model := range models {
-        fmt.Printf("- %s (%s)\n", model.Alias, model.ID)
-    }
+        fmt.Printf("Found %d models\n", len(models))
+        for _, model := range models {
+                fmt.Printf("- %s (%s)\n", model.Alias, model.ModelID)
+        }
 }
 ```
 
