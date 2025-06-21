@@ -941,9 +941,13 @@ func (m *Manager) statusEndpoint(ctx context.Context) (*url.URL, error) {
 		return nil, nil
 	}
 
-	endpoint, err := url.Parse(matches[1])
+	endpoint, err := url.Parse(strings.TrimSpace(matches[1]))
+	if err != nil {
+		return nil, err
+	}
+
 	endpoint.Path = ""
-	return endpoint, err
+	return endpoint, nil
 }
 
 func (m *Manager) invokeFoundry(ctx context.Context, args string) (string, error) {
