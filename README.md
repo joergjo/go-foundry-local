@@ -1,6 +1,6 @@
 # go-foundry-local
 
-This is an _unofficial_ Go SDK for interacting with Microsoft's [Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/what-is-foundry-local) runtime. It provides a simple, idiomatic Go interface for starting and stopping the Foundry Local runtime, managing AI models, and resolving Foundry Local's OpenAI compatbile endpoints. 
+This is an _unofficial_ Go SDK for interacting with Microsoft's [Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/what-is-foundry-local) runtime. It provides a simple, idiomatic Go interface for starting and stopping the Foundry Local runtime, managing AI models, and resolving Foundry Local's OpenAI compatible endpoints. 
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/joergjo/go-foundry-local/foundrylocal.svg)](https://pkg.go.dev/github.com/joergjo/go-foundry-local/foundrylocal)
 
