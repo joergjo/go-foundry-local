@@ -4,6 +4,8 @@
 //   - Create and configure a Manager
 //   - Start and stop the Foundry Local service
 //   - List and browse available models
+//   - Get detailed model information
+//   - Check if models are upgradable
 //   - Download models (with progress reporting)
 //   - Load and unload models for inference
 //   - Get service information and cache location
@@ -52,7 +54,7 @@ func main() {
 
 	// Ensure we stop the service when done
 	defer func() {
-		fmt.Println("\n9. Cleaning up...")
+		fmt.Println("\n10. Cleaning up...")
 		if err := manager.StopService(context.Background()); err != nil {
 			fmt.Printf("   ⚠ Error stopping service: %v\n", err)
 		} else {
@@ -126,8 +128,21 @@ func main() {
 		}
 	}
 
-	// Example 5: List currently cached models
-	fmt.Println("\n5. Checking cached models...")
+	// Example 5: Check if model is upgradable
+	fmt.Println("\n5. Checking if model is upgradable...")
+	isUpgradable, err := manager.IsModelUpgradable(ctx, targetModel)
+	if err != nil {
+		fmt.Printf("   ⚠ Failed to check if model is upgradable: %v\n", err)
+	} else {
+		if isUpgradable {
+			fmt.Printf("   ✓ Model %s has an upgrade available\n", targetModel)
+		} else {
+			fmt.Printf("   • Model %s is up to date (no upgrade available)\n", targetModel)
+		}
+	}
+
+	// Example 6: List currently cached models
+	fmt.Println("\n6. Checking cached models...")
 	cachedModels, err := manager.ListCachedModels(ctx)
 	if err != nil {
 		log.Printf("   ⚠ Failed to list cached models: %v", err)
@@ -141,8 +156,8 @@ func main() {
 		}
 	}
 
-	// Example 6: Download a model (with progress)
-	fmt.Println("\n6. Downloading model (if not cached)...")
+	// Example 7: Download a model (with progress)
+	fmt.Println("\n7. Downloading model (if not cached)...")
 
 	// Check if model is already cached
 	isCached := false
@@ -185,8 +200,8 @@ func main() {
 		}
 	}
 
-	// Example 7: List currently loaded models
-	fmt.Println("\n7. Checking loaded models...")
+	// Example 8: List currently loaded models
+	fmt.Println("\n8. Checking loaded models...")
 	loadedModels, err := manager.ListLoadedModels(ctx)
 	if err != nil {
 		log.Printf("   ⚠ Failed to list loaded models: %v", err)
@@ -200,8 +215,8 @@ func main() {
 		}
 	}
 
-	// Example 8: Load and unload a model
-	fmt.Println("\n8. Loading and unloading model...")
+	// Example 9: Load and unload a model
+	fmt.Println("\n9. Loading and unloading model...")
 
 	// Check if target model is already loaded
 	isLoaded := false
@@ -233,7 +248,7 @@ func main() {
 		}
 	}
 
-	// Example 9: Demonstrate convenience function
+	// Example 10: Demonstrate convenience function
 	fmt.Println("\n--- Bonus: Using StartModel convenience function ---")
 	fmt.Println("• This function creates a manager, starts service, downloads and loads a model in one call")
 

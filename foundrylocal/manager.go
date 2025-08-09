@@ -52,6 +52,7 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -86,10 +87,14 @@ const (
 	ExecutionProviderQNN = "QNN"
 )
 
+// testIsRunning is a regular expression used to extract service endpoint URLs from foundry status output.
 var testIsRunning = regexp.MustCompile(`is running on (http://.*)\s+`)
 
 // ErrModelNotInCatalog is returned when a requested model is not found in the Foundry Local catalog.
 var ErrModelNotInCatalog = errors.New("model not found in catalog")
+
+// ErrModelUpgradeFailed is returned when a model upgrade operation fails.
+var ErrModelUpgradeFailed = errors.New("failed to upgrade model")
 
 // Manager provides methods to interact with the Foundry Local runtime.
 // It manages the lifecycle of the Foundry Local service and provides
@@ -364,11 +369,32 @@ func (m *Manager) GetModelInfo(ctx context.Context, aliasOrModelID string) (Mode
 	if err != nil {
 		return ModelInfo{}, err
 	}
-
 	model, ok := dict[aliasOrModelID]
 	if !ok {
-		return ModelInfo{}, ErrModelNotInCatalog
+		if !strings.Contains(aliasOrModelID, ":") {
+			prefix := strings.ToLower(aliasOrModelID) + ":"
+			bestVersion := -1
+			found := false
+
+			for k, v := range dict {
+				if strings.HasPrefix(strings.ToLower(k), prefix) {
+					if version := GetVersion(k); version > bestVersion {
+						bestVersion = version
+						model = v
+						found = true
+					}
+				}
+			}
+
+			if !found {
+				return ModelInfo{}, ErrModelNotInCatalog
+			}
+		} else {
+			// Input contains a version suffix (aliasOrModelID includes ':') but no exact match in catalog
+			return ModelInfo{}, ErrModelNotInCatalog
+		}
 	}
+
 	return model, nil
 }
 
@@ -869,6 +895,120 @@ func (m *Manager) UnloadModel(ctx context.Context, aliasOrModelID string) error 
 	return nil
 }
 
+// GetLatestModelInfo retrieves the latest version of a model by its alias or ID.
+// If the input contains a version suffix (":"), it attempts to find an exact match first.
+// Otherwise, it delegates to GetModelInfo to find the latest version.
+//
+// Example:
+//
+//	// Get latest version of a model by alias
+//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Get specific version
+//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5:1")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+func (m *Manager) GetLatestModelInfo(ctx context.Context, aliasOrModelID string) (ModelInfo, error) {
+	if aliasOrModelID == "" {
+		return ModelInfo{}, fmt.Errorf("aliasOrModelID cannot be empty")
+	}
+
+	catalog, err := m.getCatalogMap(ctx)
+	if err != nil {
+		return ModelInfo{}, err
+	}
+
+	// If alias or id without version
+	if strings.Contains(aliasOrModelID, ":") {
+		modelInfo, ok := catalog[aliasOrModelID]
+		// If there is an exact match in catalog, return it directly
+		if ok {
+			return modelInfo, nil
+		}
+
+		// Otherwise, GetModelInfo will get the latest version
+		return m.GetModelInfo(ctx, aliasOrModelID)
+	}
+	idWithoutVersion := strings.Split(aliasOrModelID, ":")[0]
+	return m.GetModelInfo(ctx, idWithoutVersion)
+}
+
+func (m *Manager) IsModelUpgradable(ctx context.Context, aliasOrModelID string) (bool, error) {
+	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID)
+	if err != nil {
+		if errors.Is(err, ErrModelNotInCatalog) {
+			// Model not found in catalog
+			return false, nil
+		}
+		// Other error occurred while fetching model info
+		return false, err
+	}
+
+	latestVersion := GetVersion(modelInfo.ID)
+	if latestVersion == -1 {
+		// Invalid version format in model ID
+		return false, nil
+	}
+
+	cachedModels, err := m.ListCachedModels(ctx)
+	if err != nil {
+		// Error occurred while listing cached models
+		return false, err
+	}
+
+	for _, cachedModel := range cachedModels {
+		if strings.EqualFold(cachedModel.ID, modelInfo.ID) && GetVersion(cachedModel.ID) == latestVersion {
+			// Cached model is already at latest version
+			return false, nil
+		}
+	}
+
+	// Latest version not in cache - upgrade available
+	return true, nil
+}
+
+// UpgradeModel upgrades a model to its latest available version by downloading it.
+// This is a convenience method that combines GetLatestModelInfo and DownloadModel.
+// If a token is provided, it will be used for authentication when downloading private models.
+//
+// Example:
+//
+//	// Upgrade a public model
+//	modelInfo, err := manager.UpgradeModel(ctx, "qwen2.5", "")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Upgrade a private model with token
+//	modelInfo, err := manager.UpgradeModel(ctx, "private-model", "your-token")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+func (m *Manager) UpgradeModel(ctx context.Context, aliasOrModelID, token string) (ModelInfo, error) {
+	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID)
+	if err != nil {
+		return ModelInfo{}, err
+	}
+	opts := []DownloadOption{}
+	if token != "" {
+		opts = append(opts, WithToken(token))
+	}
+	mi, err := m.DownloadModel(ctx, modelInfo.ID, opts...)
+	if err != nil {
+		return ModelInfo{}, ErrModelUpgradeFailed
+	}
+	return mi, nil
+
+}
+
+// fetchModelInfo retrieves ModelInfo structs for the given list of aliases or model IDs.
+// Models not found in the catalog are skipped with a debug log entry rather than causing
+// the entire operation to fail. This allows the method to work gracefully with cached
+// or loaded models that may not be present in the current catalog.
 func (m *Manager) fetchModelInfo(ctx context.Context, aliasesOrModelIDs ...string) ([]ModelInfo, error) {
 	modelInfos := make([]ModelInfo, 0, len(aliasesOrModelIDs))
 	for _, aliasOrID := range aliasesOrModelIDs {
@@ -876,6 +1016,7 @@ func (m *Manager) fetchModelInfo(ctx context.Context, aliasesOrModelIDs ...strin
 		if err != nil {
 			if errors.Is(err, ErrModelNotInCatalog) {
 				m.Logger.DebugContext(ctx, "model not found in catalog", "aliasOrID", aliasOrID)
+				continue
 			}
 			return nil, err
 		}
@@ -884,43 +1025,73 @@ func (m *Manager) fetchModelInfo(ctx context.Context, aliasesOrModelIDs ...strin
 	return modelInfos, nil
 }
 
+// getCatalogMap builds and caches a map from model IDs and aliases to ModelInfo structs.
+// The map includes direct model ID lookups and alias resolution with priority-based selection.
+// When multiple models share the same alias, the best candidate is chosen based on:
+//  1. Execution provider priority (lower priority values are preferred)
+//  2. Version number (higher versions are preferred as tie-breakers)
+//
+// The map is cached after the first call until RefreshCatalog is called.
 func (m *Manager) getCatalogMap(ctx context.Context) (map[string]ModelInfo, error) {
 	if m.catalogMap != nil {
 		return m.catalogMap, nil
 	}
 
-	miMap := make(map[string]ModelInfo)
 	models, err := m.ListCatalogModels(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	dict := make(map[string]ModelInfo)
+	aliasCandidates := make(map[string][]ModelInfo)
+
 	for _, model := range models {
-		miMap[model.ID] = model
+		dict[model.ID] = model
 		if model.Alias != "" {
-			existing, ok := miMap[model.Alias]
-			if !ok {
-				miMap[model.Alias] = model
-			} else {
-				currentPriority, ok := m.priorityMap[model.Runtime.ExecutionProvider]
-				if !ok {
-					currentPriority = math.MaxInt
-				}
-				existingPriority, ok := m.priorityMap[existing.Runtime.ExecutionProvider]
-				if !ok {
-					existingPriority = math.MaxInt
-				}
-				if currentPriority < existingPriority {
-					miMap[model.Alias] = model
-				}
+			// Use lower-cased key for case-insensitive grouping
+			key := strings.ToLower(model.Alias)
+			if _, ok := aliasCandidates[key]; !ok {
+				aliasCandidates[key] = make([]ModelInfo, 0, 1)
 			}
+			aliasCandidates[key] = append(aliasCandidates[key], model)
 		}
 	}
 
-	m.catalogMap = miMap
+	for k, v := range aliasCandidates {
+		alias := k
+		candidates := v
+		bestCandidate := aggregate(candidates, func(best, current ModelInfo) ModelInfo {
+			bestPriority, ok := m.priorityMap[best.Runtime.ExecutionProvider]
+			if !ok {
+				bestPriority = math.MaxInt
+			}
+			currentPriority, ok := m.priorityMap[current.Runtime.ExecutionProvider]
+			if !ok {
+				currentPriority = math.MaxInt
+			}
+
+			if currentPriority < bestPriority {
+				return current
+			}
+
+			if currentPriority == bestPriority {
+				bestVersion := GetVersion(best.ID)
+				currentVersion := GetVersion(current.ID)
+				if currentVersion > bestVersion {
+					return current
+				}
+			}
+			return best
+		})
+		dict[alias] = bestCandidate
+	}
+
+	m.catalogMap = dict
 	return m.catalogMap, nil
 }
 
+// ensureServiceRunning starts the Foundry Local service if it's not already running
+// and returns the service endpoint URL.
 func (m *Manager) ensureServiceRunning(ctx context.Context) (*url.URL, error) {
 	cmd := exec.CommandContext(ctx, "foundry", "service", "start")
 	err := cmd.Run()
@@ -930,6 +1101,8 @@ func (m *Manager) ensureServiceRunning(ctx context.Context) (*url.URL, error) {
 	return m.statusEndpoint(ctx)
 }
 
+// statusEndpoint retrieves the current service endpoint URL by calling 'foundry service status'
+// and parsing the output for the running service URL.
 func (m *Manager) statusEndpoint(ctx context.Context) (*url.URL, error) {
 	statusResult, err := m.invokeFoundry(ctx, "service status")
 	if err != nil {
@@ -950,6 +1123,8 @@ func (m *Manager) statusEndpoint(ctx context.Context) (*url.URL, error) {
 	return endpoint, nil
 }
 
+// invokeFoundry executes the foundry command-line tool with the given arguments
+// and returns the combined stdout and stderr output.
 func (m *Manager) invokeFoundry(ctx context.Context, args string) (string, error) {
 	cmdArgs := strings.Split(args, " ")
 	cmd := exec.CommandContext(ctx, "foundry", cmdArgs...)
@@ -957,6 +1132,33 @@ func (m *Manager) invokeFoundry(ctx context.Context, args string) (string, error
 	return string(bytes), err
 }
 
+// GetVersion extracts the version number from a model ID that follows the format "name:version".
+// Returns the version as an integer, or -1 if the model ID doesn't contain a valid version suffix.
+//
+// Example:
+//
+//	version := foundrylocal.GetVersion("qwen2.5-0.5b:2") // returns 2
+//	version := foundrylocal.GetVersion("qwen2.5-0.5b")   // returns -1
+func GetVersion(modelID string) int {
+	if modelID == "" {
+		return -1
+	}
+
+	parts := strings.Split(modelID, ":")
+	if len(parts) < 2 {
+		return -1
+	}
+
+	versionPart := parts[len(parts)-1]
+	version, err := strconv.Atoi(versionPart)
+	if err != nil {
+		return -1 // Return -1 if version parsing fails
+	}
+	return version
+}
+
+// matchAliasOrId returns a predicate function that checks if a ModelInfo matches
+// the given alias or model ID using case-insensitive comparison.
 func matchAliasOrId(aliasOrModelID string) func(modelInfo ModelInfo) bool {
 	return func(modelInfo ModelInfo) bool {
 		return strings.EqualFold(modelInfo.ID, aliasOrModelID) ||
@@ -964,6 +1166,26 @@ func matchAliasOrId(aliasOrModelID string) func(modelInfo ModelInfo) bool {
 	}
 }
 
+// ensureSuccessStatusCode checks if an HTTP response has a success status code (2xx).
+// Returns true for status codes in the range 200-299, false otherwise.
 func ensureSuccessStatusCode(resp *http.Response) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// aggregate applies a binary function to reduce a slice of items to a single value.
+// The function starts with the first item and applies the function with each subsequent item.
+// Panics if called with an empty slice.
+func aggregate[T any](items []T, fn func(T, T) T) T {
+	if len(items) == 0 {
+		panic("aggregate called with empty items")
+	}
+
+	res := items[0]
+	if len(items) > 1 {
+		items = items[1:]
+		for _, i := range items {
+			res = fn(res, i)
+		}
+	}
+	return res
 }

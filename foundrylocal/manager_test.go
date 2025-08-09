@@ -3,6 +3,7 @@ package foundrylocal
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ func TestGetModelInfo(t *testing.T) {
 // preferred over CPU and WebGPU models when multiple variants exist.
 func TestGetModelInfoCUDAPriority(t *testing.T) {
 	phi4MiniModels := json.RawMessage(`[{
-			"name": "Phi-4-mini-instruct-generic-cpu",
+			"name": "Phi-4-mini-instruct-generic-cpu:1",
 			"alias": "phi-4-mini",
 			"uri": "http://example.com",
 			"providerType": "huggingface",
@@ -154,7 +155,7 @@ func TestGetModelInfoCUDAPriority(t *testing.T) {
 				"executionProvider": "CPU"
 			}
 		}, {
-			"name": "Phi-4-mini-instruct-webgpu",
+			"name": "Phi-4-mini-instruct-webgpu:1",
 			"alias": "phi-4-mini",
 			"uri": "http://example.com",
 			"providerType": "huggingface",
@@ -163,7 +164,7 @@ func TestGetModelInfoCUDAPriority(t *testing.T) {
 				"executionProvider": "WEBGPU"
 			}
 		}, {
-			"name": "Phi-4-mini-instruct-cuda-gpu",
+			"name": "Phi-4-mini-instruct-cuda-gpu:1",
 			"alias": "phi-4-mini",
 			"uri": "http://example.com",
 			"providerType": "huggingface",
@@ -188,20 +189,20 @@ func TestGetModelInfoCUDAPriority(t *testing.T) {
 		wantModelID    string
 	}{
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-generic-cpu",
-			wantModelID:    "Phi-4-mini-instruct-generic-cpu",
+			aliasOrModelID: "Phi-4-mini-instruct-generic-cpu:1",
+			wantModelID:    "Phi-4-mini-instruct-generic-cpu:1",
 		},
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-webgpu",
-			wantModelID:    "Phi-4-mini-instruct-webgpu",
+			aliasOrModelID: "Phi-4-mini-instruct-webgpu:1",
+			wantModelID:    "Phi-4-mini-instruct-webgpu:1",
 		},
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-cuda-gpu",
-			wantModelID:    "Phi-4-mini-instruct-cuda-gpu",
+			aliasOrModelID: "Phi-4-mini-instruct-cuda-gpu:1",
+			wantModelID:    "Phi-4-mini-instruct-cuda-gpu:1",
 		},
 		{
 			aliasOrModelID: "phi-4-mini",
-			wantModelID:    "Phi-4-mini-instruct-cuda-gpu",
+			wantModelID:    "Phi-4-mini-instruct-cuda-gpu:1",
 		},
 	}
 	for _, tc := range tests {
@@ -784,5 +785,214 @@ func TestDownloadModelWithProgressError(t *testing.T) {
 	}
 	if got, want := progressList[0].ErrorMessage, "Download error occurred."; got != want {
 		t.Errorf("got error message %q, want %q", got, want)
+	}
+}
+
+// TestGetVersion tests the GetVersion function to verify that version numbers
+// are correctly extracted from model IDs, including cases with and without
+// version suffixes, empty model IDs, and multiple colons in the ID.
+func TestGetVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		modelID  string
+		expected int
+	}{
+		{
+			name:     "model_id_with_version",
+			modelID:  "test-model:1",
+			expected: 1,
+		},
+		{
+			name:     "model_id_without_version",
+			modelID:  "test-model",
+			expected: -1,
+		},
+		{
+			name:     "empty_model_id",
+			modelID:  "",
+			expected: -1,
+		},
+		{
+			name:     "model_id_with_empty_version",
+			modelID:  "test-model:",
+			expected: -1,
+		},
+		{
+			name:     "model_id_with_multiple_colons",
+			modelID:  "test:model:2",
+			expected: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			version := GetVersion(tc.modelID)
+			if version != tc.expected {
+				t.Errorf("got version %d, want %d", version, tc.expected)
+			}
+		})
+	}
+}
+
+func TestUpgradeModel(t *testing.T) {
+	tests := []struct {
+		name         string
+		modelID      string
+		alias        string
+		token        string
+		catalogJSON  json.RawMessage
+		cacheJSON    json.RawMessage
+		downloadJSON json.RawMessage
+		err          error
+	}{
+		{
+			name:    "upgrade_model_success",
+			modelID: "model-1:2",
+			alias:   "model-1",
+			token:   "token",
+			catalogJSON: json.RawMessage(`[{
+				"name": "model-1:2",
+				"alias": "model-1",
+				"uri": "http://model.uri",
+				"providerType": "openai",
+				"runtime": {
+					"deviceType": "cpu",
+					"executionProvider": "CPU"
+				}
+			}]`),
+			cacheJSON:    json.RawMessage(`[]`),
+			downloadJSON: json.RawMessage(`{"success": true, "errorMessage": null}`),
+			err:          nil,
+		}, {
+			name:         "upgrade_model_not_found",
+			modelID:      "",
+			alias:        "missing-model",
+			token:        "",
+			catalogJSON:  json.RawMessage(`[]`),
+			cacheJSON:    json.RawMessage(`[]`),
+			downloadJSON: json.RawMessage(`{"success": true, "errorMessage": null}`),
+			err:          ErrModelNotInCatalog,
+		}, {
+			name:    "upgrade_model_download_error",
+			modelID: "",
+			alias:   "model-1",
+			token:   "",
+			catalogJSON: json.RawMessage(`[{
+				"name": "model-1:2",
+				"alias": "model-1",
+				"uri": "http://model.uri",
+				"providerType": "openai",
+				"runtime": {
+					"deviceType": "cpu",
+					"executionProvider": "CPU"
+				}
+			}]`),
+			cacheJSON:    json.RawMessage(`[]`),
+			downloadJSON: json.RawMessage(`{"success": false, "errorMessage": "simulated download failure"}`),
+			err:          ErrModelUpgradeFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(
+				route{"/foundry/list", tc.catalogJSON, "application/json"},
+				route{"/openai/models", tc.cacheJSON, "application/json"},
+				route{"/openai/download", tc.downloadJSON, "application/json"}))
+			defer srv.Close()
+
+			serviceURL, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("failed to parse service URL: %v", err)
+			}
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			mi, err := m.UpgradeModel(t.Context(), tc.alias, tc.token)
+			if got, want := err, tc.err; !errors.Is(got, want) {
+				t.Fatalf("got error %v, want %v", got, want)
+			}
+			if got, want := mi.ID, tc.modelID; got != want {
+				t.Errorf("got model ID %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestIsModelUpgradeable(t *testing.T) {
+
+	tests := []struct {
+		name        string
+		alias       string
+		catalogJSON json.RawMessage
+		cacheJSON   json.RawMessage
+		want        bool
+	}{
+		{
+			name:  "newer_version_available",
+			alias: "model-1",
+			catalogJSON: json.RawMessage(`[{
+				"name": "model-1:2",
+				"alias": "model-1",
+				"uri": "http://model.uri",
+				"providerType": "openai",
+				"runtime": {
+					"deviceType": "cpu",
+					"executionProvider": "CPU"
+				}
+			}]`),
+			cacheJSON: json.RawMessage(`["model-1:1"]`),
+			want:      true,
+		},
+		{
+			name:  "latest_version_cached",
+			alias: "model-1",
+			catalogJSON: json.RawMessage(`[{
+				"name": "model-1:2",
+				"alias": "model-1",
+				"uri": "http://model.uri",
+				"providerType": "openai",
+				"runtime": {
+					"deviceType": "cpu",
+					"executionProvider": "CPU"
+				}
+			}]`),
+			cacheJSON: json.RawMessage(`["model-1:2"]`),
+			want:      false,
+		}, {
+			name:        "model_not_found",
+			alias:       "missing-model",
+			catalogJSON: json.RawMessage(`[]`),
+			cacheJSON:   json.RawMessage(`[]`),
+			want:        false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(
+				route{"/foundry/list", tc.catalogJSON, "application/json"},
+				route{"/openai/models", tc.cacheJSON, "application/json"}))
+			defer srv.Close()
+
+			serviceURL, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("failed to parse service URL: %v", err)
+			}
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			got, err := m.IsModelUpgradable(t.Context(), tc.alias)
+			if err != nil {
+				t.Fatalf("failed to check if model is upgradeable: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got model to be upgradeable %t, want %t", got, tc.want)
+			}
+		})
 	}
 }

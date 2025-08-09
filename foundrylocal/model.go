@@ -61,6 +61,10 @@ type ModelInfo struct {
 	LicenseDescription string `json:"licenseDescription"`
 	// ParentModelURI references the base model if this is a fine-tuned variant.
 	ParentModelURI string `json:"parentModelUri"`
+	// MaxOutputTokens is the maximum number of tokens the model can generate in a single response.
+	MaxOutputTokens int `json:"maxOutputTokens"`
+	// MinFLVersion specifies the minimum Foundry Local version required to use this model.
+	MinFLVersion string `json:"minFLVersion"`
 }
 
 // DownloadRequestModelInfo contains the subset of model information needed for download requests.
@@ -141,4 +145,30 @@ func NewDownloadError(errMessage string) ModelDownloadProgress {
 		IsCompleted:  true,
 		ErrorMessage: errMessage,
 	}
+}
+
+// UpgradeBody contains the model information needed for upgrade requests.
+// This is used internally when communicating with the Foundry Local service.
+type UpgradeBody struct {
+	// Name is the unique identifier for the model to be upgraded.
+	Name string `json:"name"`
+	// Version is the new version string for the model.
+	URI string `json:"uri"`
+	// Publisher is the organization that published the model.
+	Publisher string `json:"publisher"`
+	// ProviderType indicates the model provider (e.g., "Microsoft", "Meta").
+	ProviderType string `json:"providerType"`
+	// PromptTemplate defines how to format prompts for this model.
+	PromptTemplate PromptTemplate `json:"promptTemplate"`
+}
+
+// UpgradeRequest represents a request to upgrade a model to a newer version.
+// This is used internally when communicating with the Foundry Local service.
+type UpgradeRequest struct {
+	// Model contains the model information for upgrade.
+	Model UpgradeBody `json:"model"`
+	// Token is the authentication token for private models.
+	Token string `json:"token"`
+	// IgnorePipeReport controls whether to ignore pipeline reporting.
+	IgnorePipeReport bool `json:"ignorePipeReport"`
 }

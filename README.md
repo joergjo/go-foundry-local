@@ -29,8 +29,6 @@ Foundry Local runtime version | Module version
 0.4.92                        | >= 0.2.0, < 0.3.0
 0.5.117                       | >= 0.3.0
 
-*v0.3.0 is coming soon!*
-
 ## Quick Start
 
 ```go

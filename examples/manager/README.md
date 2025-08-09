@@ -11,7 +11,7 @@ This example demonstrates comprehensive usage of the `foundrylocal.Manager` type
 
 2. **Model Discovery**
    - Listing available models in the catalog
-   - Getting detailed information about specific models
+   - Getting detailed information about specific models and model updates
    - Checking model execution providers and device requirements
 
 3. **Model Management**
