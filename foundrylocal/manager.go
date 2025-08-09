@@ -965,5 +965,5 @@ func matchAliasOrId(aliasOrModelID string) func(modelInfo ModelInfo) bool {
 }
 
 func ensureSuccessStatusCode(resp *http.Response) bool {
-	return resp.StatusCode >= 200 || resp.StatusCode < 300
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
