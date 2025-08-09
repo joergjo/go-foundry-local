@@ -569,7 +569,7 @@ func TestUnloadModel(t *testing.T) {
 		},
 	}
 
-	urlPath := fmt.Sprintf("/openai/unload/%s?force=true", modelID)
+	urlPath := fmt.Sprintf("/openai/unload/%s", modelID)
 	srv := httptest.NewServer(newHandler(
 		route{urlPath, json.RawMessage{}, "application/json"}))
 	defer srv.Close()
