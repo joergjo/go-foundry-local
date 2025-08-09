@@ -603,7 +603,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 	params := url.Values{}
 	params.Set("ttl", fmt.Sprintf("%d", int64(config.timeout.Seconds())))
 
-	if modelInfo.Runtime.ExecutionProvider == ExecutionProviderCUDA || DeviceType(modelInfo.Runtime.ExecutionProvider) == ExecutionProviderWebGPU {
+	if modelInfo.Runtime.ExecutionProvider == ExecutionProviderCUDA || modelInfo.Runtime.ExecutionProvider == ExecutionProviderWebGPU {
 		hasCUDASupport := slices.ContainsFunc(localModelInfo, func(mi ModelInfo) bool {
 			return mi.Runtime.ExecutionProvider == ExecutionProviderCUDA
 		})
