@@ -1,10 +1,15 @@
 module github.com/joergjo/go-foundry-local/examples/chat-completion-streaming
 
-go 1.24.4
+go 1.24.6
 
 require (
 	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20250809125217-30efc08600bd
-	github.com/tmaxmax/go-sse v0.11.0
+	github.com/openai/openai-go/v2 v2.0.2
 )
 
-replace github.com/joergjo/go-foundry-local/foundrylocal => ../../foundrylocal
+require (
+	github.com/tidwall/gjson v1.18.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
+)

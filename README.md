@@ -89,7 +89,7 @@ Shows how to use a model for chat completions with the official OpenAI Go client
 - Making standard OpenAI-compatible API calls
 - Simple, non-streaming responses
 
-### [Streaming Chat Completion](examples/chat-completion-streaming/)
+### [Streaming Chat Completion](examples/chat-completion-streaming-direct/)
 Demonstrates real-time streaming chat completions:
 - Server-Sent Events (SSE) handling
 - Real-time response display
