@@ -119,7 +119,7 @@ go fmt ./...
 
 - Go 1.24.4 or later
 - Foundry Local must be [installed and available in your PATH](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/get-started)
-- macOS or Windows (developed and tested on macOS Sequoia 15.5 and Windows 11 24H2)
+- macOS or Windows (developed and tested on macOS Sequoia 15.5 and later as well as Windows 11 24H2)
 
 ## Contributing
 
