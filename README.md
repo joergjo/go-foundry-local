@@ -95,6 +95,13 @@ Demonstrates real-time streaming chat completions:
 - Real-time response display
 - Stream termination handling
 
+### [Google Genkit Go Integration](examples/genkit-go/)
+Shows how to integrate with Google's Genkit Go framework:
+- Using Foundry Local as a backend for Genkit's OpenAI plugin
+- High-level AI generation abstractions
+- Explicit model capability configuration
+- Framework-based AI application development
+
 ## Development
 
 ### Building
