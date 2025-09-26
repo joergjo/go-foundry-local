@@ -74,6 +74,8 @@ For complete API documentation, see the [GoDoc](https://pkg.go.dev/github.com/jo
 
 ## Examples
 
+>Note that running these samples for the first time will take some time to download a model and load it into memory.
+
 The `examples/` directory contains complete working examples:
 
 ### [Manager Example](examples/manager/)
