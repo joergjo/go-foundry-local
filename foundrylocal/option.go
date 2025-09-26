@@ -19,7 +19,7 @@ type downloadConfig struct {
 // like Hugging Face.
 // Example:
 //
-//	modelInfo, err := manager.DownloadModel(ctx, "model-id",
+//	modelInfo, err := manager.DownloadModel(ctx, "model-id", nil,
 //		foundrylocal.WithToken("your-auth-token"))
 func WithToken(token string) DownloadOption {
 	return func(cfg *downloadConfig) {
@@ -33,7 +33,7 @@ func WithToken(token string) DownloadOption {
 //
 // Example:
 //
-//	modelInfo, err := manager.DownloadModel(ctx, "model-id",
+//	modelInfo, err := manager.DownloadModel(ctx, "model-id", nil,
 //		foundrylocal.WithForceDownload())
 func WithForceDownload() DownloadOption {
 	return func(cfg *downloadConfig) {
@@ -50,7 +50,7 @@ type loadModelConfig struct {
 //
 // Example:
 //
-//	modelInfo, err := manager.LoadModel(ctx, "model-id",
+//	modelInfo, err := manager.LoadModel(ctx, "model-id", nil,
 //		foundrylocal.WithLoadTimeout(30*time.Minute))
 func WithLoadTimeout(timeout time.Duration) LoadModelOption {
 	return func(cfg *loadModelConfig) {
@@ -75,48 +75,20 @@ type ManagerOption func(*Manager)
 func WithAutoConfigure() ManagerOption {
 	return func(m *Manager) {
 		if runtime.GOOS == "windows" {
-			WithWindowsPriorities()(m)
+			WithWindowsFallback()(m)
 			return
 		}
-		WithMacOSPriorities()(m)
 	}
 }
 
-// WithWindowsPriorities configures execution provider priorities optimized for Windows.
-// Priority order (0 = highest): QNN, CUDA, CPU, WebGPU. Using this option
-// is not required, as the Manager will default to OS-specific settings if no options
-// are provided.
-//
+// WithWindowsFallback configures execution provider priorities optimized for Windows.
+// For generic-GPU and has NO EpOverride, prefer CPU alias if available
 // Example:
 //
-//	manager := foundrylocal.NewManager(foundrylocal.WithWindowsPriorities())
-func WithWindowsPriorities() ManagerOption {
+//	manager := foundrylocal.NewManager(foundrylocal.WithWindowsFallback())
+func WithWindowsFallback() ManagerOption {
 	return func(m *Manager) {
-		m.priorityMap = map[ExecutionProvider]int{
-			ExecutionProviderQNN:    0,
-			ExecutionProviderCUDA:   1,
-			ExecutionProviderCPU:    2,
-			ExecutionProviderWebGPU: 3,
-		}
-	}
-}
-
-// WithMacOSPriorities configures execution provider priorities optimized for macOS.
-// Priority order (0 = highest): QNN, CUDA, WebGPU, CPU. Using this option
-// is not required, as the Manager will default to OS-specific settings if no options
-// are provided.
-//
-// Example:
-//
-//	manager := foundrylocal.NewManager(foundrylocal.WithMacOSPriorities())
-func WithMacOSPriorities() ManagerOption {
-	return func(m *Manager) {
-		m.priorityMap = map[ExecutionProvider]int{
-			ExecutionProviderQNN:    0,
-			ExecutionProviderCUDA:   1,
-			ExecutionProviderWebGPU: 2,
-			ExecutionProviderCPU:    3,
-		}
+		m.useWindowsFallback = true
 	}
 }
 

@@ -8,8 +8,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 )
+
+// contentFn produces the raw bytes returned by a mocked HTTP route.
+// It keeps tests concise by letting each route declare its own payload generator.
+type contentFn func() []byte
+
+// route represents a test HTTP route configuration.
+// It defines the URL path, JSON response body, and content type
+// for mock HTTP server responses in tests.
+type route struct {
+	contentFn
+	path        string
+	contentType string
+}
 
 // newHandler creates a test HTTP handler that serves predefined routes.
 // It matches incoming requests against the provided routes and serves
@@ -21,7 +36,7 @@ func newHandler(routes ...route) http.Handler {
 				if route.contentType != "" {
 					w.Header().Set("Content-Type", route.contentType)
 				}
-				w.Write(route.json)
+				w.Write(route.contentFn())
 				return
 			}
 		}
@@ -29,25 +44,312 @@ func newHandler(routes ...route) http.Handler {
 	})
 }
 
-// route represents a test HTTP route configuration.
-// It defines the URL path, JSON response body, and content type
-// for mock HTTP server responses in tests.
-type route struct {
-	path        string
-	json        json.RawMessage
-	contentType string
+// mockCatalog returns a route that serves the catalog listing with optional CUDA
+// entries so tests can exercise different device combinations.
+func mockCatalog(includeCUDA bool) route {
+	catalog := buildCatalog(includeCUDA)
+	contentFn := func() []byte {
+		json, _ := json.Marshal(catalog)
+		return json
+	}
+	return route{
+		contentFn: contentFn,
+		path:      "/foundry/list",
+	}
 }
 
-// TestListCatalogModel tests the ListCatalogModels method to ensure it correctly
-// retrieves and parses the catalog of available models from the foundry service.
+// mockLocalModels returns a route that serves the IDs of locally cached models
+// to simulate Foundry Local's cache state.
+func mockLocalModels(ids ...string) route {
+	contentFn := func() []byte {
+		json, _ := json.Marshal(ids)
+		return json
+	}
+	return route{
+		contentFn: contentFn,
+		path:      "/openai/models",
+	}
+}
+
+// mockLoadedModels returns a route that serves the IDs of models currently
+// loaded in memory for inference.
+func mockLoadedModels(ids ...string) route {
+	contentFn := func() []byte {
+		json, _ := json.Marshal(ids)
+		return json
+	}
+	return route{
+		contentFn: contentFn,
+		path:      "/openai/loadedmodels",
+	}
+}
+
+// mockJSON returns a route that serves the provided JSON payload at the given
+// path without additional processing.
+func mockJSON(path string, data json.RawMessage) route {
+	contentFn := func() []byte {
+		return data
+	}
+	return route{
+		contentFn: contentFn,
+		path:      path,
+	}
+}
+
+// buildCatalog constructs synthetic catalog entries including CPU, GPU, and NPU
+// variants so tests can validate filtering, overrides, and upgrades.
+func buildCatalog(includeCUDA bool) []ModelInfo {
+	common := ModelInfo{
+		ProviderType:        "AzureFoundry",
+		Version:             "1",
+		ModelType:           "ONNX",
+		PromptTemplate:      nil,
+		Publisher:           "Microsoft",
+		Task:                "chat-completion",
+		FileSizeMB:          10403,
+		ModelSettings:       ModelSettings{},
+		SupportsToolCalling: false,
+		License:             "MIT",
+		LicenseDescription:  "License…",
+		MaxOutputTokens:     1024,
+		MinFLVersion:        "1.0.0",
+	}
+
+	list1 := []ModelInfo{
+		{
+			ID:             "model-1-generic-gpu:1",
+			DisplayName:    "model-1-generic-gpu",
+			URI:            "azureml://registries/azureml/models/model-1-generic-gpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeGPU, ExecutionProvider: "WebGpuExecutionProvider"},
+			Alias:          "model-1",
+			ParentModelURI: "azureml://registries/azureml/models/model-1/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-1-generic-cpu:2",
+			DisplayName:    "model-1-generic-cpu",
+			URI:            "azureml://registries/azureml/models/model-1-generic-cpu/versions/2",
+			Runtime:        Runtime{DeviceType: DeviceTypeCPU, ExecutionProvider: "CPUExecutionProvider"},
+			Alias:          "model-1",
+			ParentModelURI: "azureml://registries/azureml/models/model-1/versions/2",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-1-generic-cpu:1",
+			DisplayName:    "model-1-generic-cpu",
+			URI:            "azureml://registries/azureml/models/model-1-generic-cpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeCPU, ExecutionProvider: "CPUExecutionProvider"},
+			Alias:          "model-1",
+			ParentModelURI: "azureml://registries/azureml/models/model-1/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-2-npu:2",
+			DisplayName:    "model-2-npu",
+			URI:            "azureml://registries/azureml/models/model-2-npu/versions/2",
+			Runtime:        Runtime{DeviceType: DeviceTypeNPU, ExecutionProvider: "QNNExecutionProvider"},
+			Alias:          "model-2",
+			ParentModelURI: "azureml://registries/azureml/models/model-2/versions/2",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-2-npu:1",
+			DisplayName:    "model-2-npu",
+			URI:            "azureml://registries/azureml/models/model-2-npu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeNPU, ExecutionProvider: "QNNExecutionProvider"},
+			Alias:          "model-2",
+			ParentModelURI: "azureml://registries/azureml/models/model-2/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-2-generic-cpu:1",
+			DisplayName:    "model-2-generic-cpu",
+			URI:            "azureml://registries/azureml/models/model-2-generic-cpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeCPU, ExecutionProvider: "CPUExecutionProvider"},
+			Alias:          "model-2",
+			ParentModelURI: "azureml://registries/azureml/models/model-2/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+	}
+
+	if includeCUDA {
+		list1 = append(list1, ModelInfo{
+			ID:             "model-3-cuda-gpu:1",
+			DisplayName:    "model-3-cuda-gpu",
+			URI:            "azureml://registries/azureml/models/model-3-cuda-gpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeGPU, ExecutionProvider: "CUDAExecutionProvider"},
+			Alias:          "model-3",
+			ParentModelURI: "azureml://registries/azureml/models/model-3/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		})
+	}
+
+	list2 := []ModelInfo{
+		{
+			ID:             "model-3-generic-gpu:1",
+			DisplayName:    "model-3-generic-gpu",
+			URI:            "azureml://registries/azureml/models/model-3-generic-gpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeGPU, ExecutionProvider: "WebGpuExecutionProvider"},
+			Alias:          "model-3",
+			ParentModelURI: "azureml://registries/azureml/models/model-3/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-3-generic-cpu:1",
+			DisplayName:    "model-3-generic-cpu",
+			URI:            "azureml://registries/azureml/models/model-3-generic-cpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeCPU, ExecutionProvider: "CPUExecutionProvider"},
+			Alias:          "model-3",
+			ParentModelURI: "azureml://registries/azureml/models/model-3/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+		{
+			ID:             "model-4-generic-gpu:1",
+			DisplayName:    "model-4-generic-gpu",
+			URI:            "azureml://registries/azureml/models/model-4-generic-gpu/versions/1",
+			Runtime:        Runtime{DeviceType: DeviceTypeGPU, ExecutionProvider: "WebGpuExecutionProvider"},
+			Alias:          "model-4",
+			ParentModelURI: "azureml://registries/azureml/models/model-4/versions/1",
+
+			ProviderType:        common.ProviderType,
+			Version:             common.Version,
+			ModelType:           common.ModelType,
+			PromptTemplate:      common.PromptTemplate,
+			Publisher:           common.Publisher,
+			Task:                common.Task,
+			FileSizeMB:          common.FileSizeMB,
+			ModelSettings:       common.ModelSettings,
+			SupportsToolCalling: common.SupportsToolCalling,
+			License:             common.License,
+			LicenseDescription:  common.LicenseDescription,
+			MaxOutputTokens:     common.MaxOutputTokens,
+			MinFLVersion:        common.MinFLVersion,
+		},
+	}
+	return slices.Concat(list1, list2)
+}
+
+// TestListCatalogModel exercises ListCatalogModels to ensure it retrieves,
+// parses, and caches catalog models while applying execution provider overrides.
 func TestListCatalogModel(t *testing.T) {
-	model := json.RawMessage(`[{
-			"name": "testModel",
-			"alias": "alias",
-			"uri": "http://model",
-			"providerType": "huggingface"
-		}]`)
-	srv := httptest.NewServer(newHandler(route{"/foundry/list", model, "application/json"}))
+	srv := httptest.NewServer(newHandler(mockCatalog(true)))
 	defer srv.Close()
 	serviceURL, err := url.Parse(srv.URL)
 	if err != nil {
@@ -62,11 +364,40 @@ func TestListCatalogModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to list catalog models: %v", err)
 	}
-	if got, want := len(result), 1; got != want {
-		t.Errorf("got %d models, want %d", got, want)
+	if len(result) == 0 {
+		t.Errorf("got no models, want non-empty list")
 	}
-	if got, want := result[0].ID, "testModel"; got != want {
-		t.Errorf("got model ID %q, want %q", got, want)
+	containsCUDA := slices.IndexFunc(result, func(m ModelInfo) bool {
+		return m.Runtime.ExecutionProvider == "CUDAExecutionProvider"
+	})
+	if got, want := containsCUDA > 0, true; got != want {
+		t.Fatalf("CUDA execution provider found %v, want %v", got, want)
+	}
+
+	containsGG := slices.IndexFunc(result, func(m ModelInfo) bool {
+		return m.ID == "model-4-generic-gpu:1"
+	})
+	if got, want := containsGG > 0, true; got != want {
+		t.Fatalf("model-4-generic-gpu:1 found %t, want %t", got, want)
+	}
+
+	if got, want := result[containsGG].EPOverride, "cuda"; got != want {
+		t.Errorf("got EP override %q, want %q", got, want)
+	}
+
+	// Cache is used on second call
+	again, err := m.ListCatalogModels(t.Context())
+	if err != nil {
+		t.Fatalf("failed to list catalog models: %v", err)
+	}
+	same := slices.EqualFunc(result, again, func(a, b ModelInfo) bool {
+		// We only compare the fields that are different in the test data.
+		return a.ID == b.ID && a.Alias == b.Alias && a.DisplayName == b.DisplayName &&
+			a.URI == b.URI && a.Runtime.ExecutionProvider == b.Runtime.ExecutionProvider &&
+			a.ParentModelURI == b.ParentModelURI
+	})
+	if got, want := same, true; got != want {
+		t.Errorf("got same models on second call %t, want %t", got, want)
 	}
 }
 
@@ -76,64 +407,96 @@ func TestListCatalogModel(t *testing.T) {
 func TestRefreshCatalog(t *testing.T) {
 	m := NewManager()
 	m.catalogModels = []ModelInfo{}
-	m.catalogMap = make(map[string]ModelInfo)
 
 	m.RefreshCatalog()
-	if m.catalogMap != nil {
-		t.Errorf("got catalogMap %v after refresh, want nil", m.catalogMap)
-	}
 	if m.catalogModels != nil {
-		t.Errorf("got catalogModels %v after refresh, want nil", m.catalogModels)
+		t.Errorf("got non-nil catalogModels %v after refresh, want nil", m.catalogModels)
 	}
 }
 
-// TestGetModelInfo tests the GetModelInfo method to verify it correctly
-// retrieves model information by both model ID and alias, and properly
-// handles cases where models are not found.
+// TestGetModelInfo verifies GetModelInfo resolves models by ID or alias,
+// honors optional device filters, and surfaces not-found errors.
 func TestGetModelInfo(t *testing.T) {
-	model := ModelInfo{
-		ID:           "test-model-id",
-		Alias:        "test-alias",
-		URI:          "http://example.com",
-		ProviderType: "huggingface",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	m := NewManager()
-	m.catalogModels = []ModelInfo{}
-	m.catalogMap = map[string]ModelInfo{
-		"test-model-id": model,
-		"test-alias":    model,
-	}
+	gpuFilter := DeviceType(DeviceTypeGPU)
+	cpuFilter := DeviceType(DeviceTypeCPU)
+	npuFilter := DeviceType(DeviceTypeNPU)
 
 	tests := []struct {
 		name           string
 		aliasOrModelID string
 		wantModelID    string
+		device         *DeviceType
 		err            error
 	}{
 		{
-			name:           "find_model_by_id_ok",
-			aliasOrModelID: "test-model-id",
-			wantModelID:    "test-model-id",
+			name:           "get_model_exact_id",
+			aliasOrModelID: "model-1-generic-cpu:1",
+			wantModelID:    "model-1-generic-cpu:1",
+			device:         nil,
 			err:            nil,
 		},
 		{
-			name:           "find_model_by_id_not_found",
-			aliasOrModelID: "non-existent",
+			name:           "get_model_latest_version",
+			aliasOrModelID: "model-1-generic-cpu",
+			wantModelID:    "model-1-generic-cpu:2",
+			device:         nil,
+			err:            nil,
+		},
+		{
+			name:           "get_model_by_alias",
+			aliasOrModelID: "model-2",
+			wantModelID:    "model-2-npu:2",
+			device:         nil,
+			err:            nil,
+		},
+		{
+			name:           "get_model_prefer_cuda",
+			aliasOrModelID: "model-3",
+			wantModelID:    "model-3-cuda-gpu:1",
+			device:         nil,
+			err:            nil,
+		},
+		{
+			name:           "get_model_device_filter_gpu",
+			aliasOrModelID: "model-1",
+			wantModelID:    "model-1-generic-gpu:1",
+			device:         &gpuFilter,
+			err:            nil,
+		},
+		{
+			name:           "get_model_device_filter_cpu",
+			aliasOrModelID: "model-1",
+			wantModelID:    "model-1-generic-cpu:2",
+			device:         &cpuFilter,
+			err:            nil,
+		},
+		{
+			name:           "get_model_device_filter_npu_no_match",
+			aliasOrModelID: "model-1",
 			wantModelID:    "",
+			device:         &npuFilter,
 			err:            ErrModelNotInCatalog,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := m.GetModelInfo(t.Context(), tc.aliasOrModelID)
-			if got, want := err, tc.err; got != want {
-				t.Fatalf("got error: %v, want: %v", err, tc.err)
+			srv := httptest.NewServer(newHandler(
+				mockCatalog(true)))
+			defer srv.Close()
+			serviceURL, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("failed to parse service URL: %v", err)
 			}
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			result, err := m.GetModelInfo(t.Context(), tc.aliasOrModelID, tc.device)
+			if got, want := err, tc.err; !errors.Is(got, want) {
+				t.Fatalf("got error %v, want %v", got, want)
+			}
+
 			if got, want := result.ID, tc.wantModelID; got != want {
 				t.Errorf("got model ID %q, want %q", got, want)
 			}
@@ -141,39 +504,12 @@ func TestGetModelInfo(t *testing.T) {
 	}
 }
 
-// TestGetModelInfoCUDAPriority tests the execution provider priority system
-// when multiple models share the same alias. Verifies that CUDA models are
-// preferred over CPU and WebGPU models when multiple variants exist.
-func TestGetModelInfoCUDAPriority(t *testing.T) {
-	phi4MiniModels := json.RawMessage(`[{
-			"name": "Phi-4-mini-instruct-generic-cpu:1",
-			"alias": "phi-4-mini",
-			"uri": "http://example.com",
-			"providerType": "huggingface",
-			"runtime": {
-				"deviceType": "cpu",
-				"executionProvider": "CPU"
-			}
-		}, {
-			"name": "Phi-4-mini-instruct-webgpu:1",
-			"alias": "phi-4-mini",
-			"uri": "http://example.com",
-			"providerType": "huggingface",
-			"runtime": {
-				"deviceType": "webgpu",
-				"executionProvider": "WEBGPU"
-			}
-		}, {
-			"name": "Phi-4-mini-instruct-cuda-gpu:1",
-			"alias": "phi-4-mini",
-			"uri": "http://example.com",
-			"providerType": "huggingface",
-			"runtime": {
-				"deviceType": "gpu",
-				"executionProvider": "CUDA"
-			}
-		}]`)
-	srv := httptest.NewServer(newHandler(route{"/foundry/list", phi4MiniModels, "application/json"}))
+// TestListCachedModels ensures ListCachedModels returns the expected set of
+// locally cached models that are available for loading.
+func TestListCachedModels(t *testing.T) {
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels("model-2-npu:1", "model-4-generic-gpu:1")))
 	defer srv.Close()
 	serviceURL, err := url.Parse(srv.URL)
 	if err != nil {
@@ -184,64 +520,135 @@ func TestGetModelInfoCUDAPriority(t *testing.T) {
 	m.serviceURL = serviceURL
 	m.client = srv.Client()
 
+	local, err := m.ListCachedModels(t.Context())
+	if err != nil {
+		t.Fatalf("failed to list cached models: %v", err)
+	}
+	if got, want := len(local), 2; got != want {
+		t.Fatalf("got %d cached models, want %d", got, want)
+	}
+	if got, want := local[0].ID, "model-2-npu:1"; got != want {
+		t.Errorf("got first cached model ID %q, want %q", got, want)
+	}
+	if got, want := local[1].ID, "model-4-generic-gpu:1"; got != want {
+		t.Errorf("got second cached model ID %q, want %q", got, want)
+	}
+}
+
+// TestListLoadedModels exercises ListLoadedModels to confirm it returns the
+// models currently loaded in memory and maps malformed responses to errors.
+func TestListLoadedModels(t *testing.T) {
 	tests := []struct {
-		aliasOrModelID string
-		wantModelID    string
+		name   string
+		routes []route
+		wantID string
+		err    error
 	}{
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-generic-cpu:1",
-			wantModelID:    "Phi-4-mini-instruct-generic-cpu:1",
+			name:   "load_model_success",
+			routes: []route{mockCatalog(true), mockLoadedModels("model-2-npu:1")},
+			wantID: "model-2-npu:1",
+			err:    nil,
 		},
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-webgpu:1",
-			wantModelID:    "Phi-4-mini-instruct-webgpu:1",
-		},
-		{
-			aliasOrModelID: "Phi-4-mini-instruct-cuda-gpu:1",
-			wantModelID:    "Phi-4-mini-instruct-cuda-gpu:1",
-		},
-		{
-			aliasOrModelID: "phi-4-mini",
-			wantModelID:    "Phi-4-mini-instruct-cuda-gpu:1",
+			name:   "load_model_not_found",
+			routes: []route{mockJSON("/openai/loadedmodels", json.RawMessage(`null`))},
+			wantID: "",
+			err:    ErrReadLoadedModels,
 		},
 	}
 	for _, tc := range tests {
-		t.Run(tc.aliasOrModelID, func(t *testing.T) {
-			result, err := m.GetModelInfo(t.Context(), tc.aliasOrModelID)
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(tc.routes...))
+			defer srv.Close()
+			serviceURL, err := url.Parse(srv.URL)
 			if err != nil {
-				t.Fatalf("failed to get model Info for %q: %v", tc.aliasOrModelID, err)
+				t.Fatalf("failed to parse service URL: %v", err)
 			}
-			if got, want := result.ID, tc.wantModelID; got != want {
-				t.Errorf("got model name %q, want %q", got, want)
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			result, err := m.ListLoadedModels(t.Context())
+			if err != nil {
+				if got, want := err, tc.err; !errors.Is(got, want) {
+					t.Fatalf("got error %v, want %v", got, want)
+				}
+				return
+			}
+			if got, want := result[0].ID, tc.wantID; got != want {
+				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
 	}
 }
 
-// TestGetModelInfoQNNPriority tests the execution provider priority system
-// to ensure QNN (Qualcomm Neural Network) models have the highest priority
-// and are selected over CUDA models when both variants exist with same alias.
-func TestGetModelInfoQNNPriority(t *testing.T) {
-	phi4MiniModels := json.RawMessage(`[{
-			"name": "Phi-4-mini-instruct-qnn",
-			"alias": "phi-4-mini",
-			"uri": "http://example.com",
-			"providerType": "huggingface",
-			"runtime": {
-				"deviceType": "npu",
-				"executionProvider": "QNN"
+// TestDownloadModel validates DownloadModel downloads the preferred model
+// variant and propagates success or failure from the tail JSON payload.
+func TestDownloadModel(t *testing.T) {
+	tests := []struct {
+		name        string
+		routes      []route
+		modelID     string
+		wantModelID string
+	}{
+		{
+			name: "download_model_success_parses_tail_json",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels(),
+				mockJSON("/openai/download", json.RawMessage(`log... {"success": true, "errorMessage": null}`)),
+			},
+			modelID:     "model-3",
+			wantModelID: "model-3-cuda-gpu:1",
+		},
+		{
+			name: "download_model_returns_failure",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels(),
+				mockJSON("/openai/download", json.RawMessage(`tail {"success": false, "errorMessage": "nope"`))},
+			modelID:     "model-1",
+			wantModelID: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(tc.routes...))
+			defer srv.Close()
+			serviceURL, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("failed to parse service URL: %v", err)
 			}
-		}, {
-			"name": "Phi-4-mini-instruct-cuda-gpu",
-			"alias": "phi-4-mini",
-			"uri": "http://example.com",
-			"providerType": "huggingface",
-			"runtime": {
-				"deviceType": "gpu",
-				"executionProvider": "CUDA"
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			result, err := m.DownloadModel(t.Context(), tc.modelID, nil)
+			if err != nil {
+				if tc.wantModelID == "" {
+					// We expected an error - TODO
+					return
+				}
+				t.Fatalf("got error %v for model ID %q, want nil", err, tc.modelID)
 			}
-		}]`)
-	srv := httptest.NewServer(newHandler(route{"/foundry/list", phi4MiniModels, "application/json"}))
+
+			if got, want := result.ID, tc.wantModelID; got != want {
+				t.Errorf("got model ID %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDownloadModelCached ensures DownloadModel returns an already cached
+// model when present and re-downloads it when forced.
+func TestDownloadModelCached(t *testing.T) {
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels("model-2-npu:2")))
 	defer srv.Close()
 	serviceURL, err := url.Parse(srv.URL)
 	if err != nil {
@@ -252,31 +659,337 @@ func TestGetModelInfoQNNPriority(t *testing.T) {
 	m.serviceURL = serviceURL
 	m.client = srv.Client()
 
+	cached, err := m.DownloadModel(t.Context(), "model-2", nil)
+	if err != nil {
+		t.Fatalf("got unexpected error downloading cached model: %v", err)
+	}
+	if got, want := cached.ID, "model-2-npu:2"; got != want {
+		t.Fatalf("got cached model ID %q, want %q", got, want)
+	}
+
+	srv2 := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels("model-2-npu:2"),
+		mockJSON("/openai/download", json.RawMessage(`{"success": true, "errorMessage": null}`))))
+	defer srv2.Close()
+	serviceURL, err = url.Parse(srv2.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m.serviceURL = serviceURL
+	m.client = srv2.Client()
+
+	forced, err := m.DownloadModel(t.Context(), "model-2", nil, WithForceDownload())
+	if err != nil {
+		t.Fatalf("got unexpected error downloading cached model: %v", err)
+	}
+	if got, want := forced.ID, "model-2-npu:2"; got != want {
+		t.Errorf("got cached model ID %q, want %q", got, want)
+	}
+}
+
+// TestDownloadModelWithProgressDownload tests the DownloadModelWithProgress method
+// to verify it correctly reports download progress through a channel and handles
+// the complete download process with progress updates.
+func TestDownloadModelWithProgressDownload(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("Total 0.00% Downloading model.onnx.data\n")
+	buf.WriteString("[DONE] All Completed!\n")
+	buf.WriteString(`{"success": true, "errorMessage": null}`)
+
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels(),
+		mockJSON("/openai/download", buf.Bytes())))
+	defer srv.Close()
+	serviceURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m := NewManager()
+	m.serviceURL = serviceURL
+	m.client = srv.Client()
+
+	progressChan, err := m.DownloadModelWithProgress(t.Context(), "model-3", nil)
+	if err != nil {
+		t.Fatalf("failed to download model with progress: %v", err)
+	}
+
+	progressList := []ModelDownloadProgress{}
+	for progress := range progressChan {
+		progressList = append(progressList, progress)
+	}
+
+	if got, want := len(progressList), 2; got != want {
+		t.Fatalf("got %d progress updates, want %d", got, want)
+	}
+	if got, want := progressList[0].IsCompleted, false; got != want {
+		t.Errorf("got isCompleted %t, want %t", got, want)
+	}
+	if got, want := progressList[0].Percentage, 0.0; got != want {
+		t.Errorf("got percentage %.2f, want %.2f", got, want)
+	}
+	if got, want := progressList[1].IsCompleted, true; got != want {
+		t.Errorf("got isCompleted %t, want %t", got, want)
+	}
+	if got, want := progressList[1].Percentage, 100.0; got != want {
+		t.Errorf("got percentage %.2f, want %.2f", got, want)
+	}
+	if got, want := progressList[1].ModelInfo.ID, "model-3-cuda-gpu:1"; got != want {
+		t.Errorf("got model ID %q, want %q", got, want)
+	}
+}
+
+// TestDownloadModelWithProgressError tests the DownloadModelWithProgress method
+// when a download fails, verifying it properly reports error status through
+// the progress channel with appropriate error messaging.
+func TestDownloadModelWithProgressError(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("[DONE] All Completed!\n")
+	buf.WriteString(`{"success": false, "errorMessage": "Download error occurred."}`)
+
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels(),
+		mockJSON("/openai/download", buf.Bytes())))
+	defer srv.Close()
+	serviceURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m := NewManager()
+	m.serviceURL = serviceURL
+	m.client = srv.Client()
+
+	progressChan, err := m.DownloadModelWithProgress(t.Context(), "model-3", nil)
+	if err != nil {
+		t.Fatalf("failed to download model with progress: %v", err)
+	}
+
+	progressList := []ModelDownloadProgress{}
+	for progress := range progressChan {
+		progressList = append(progressList, progress)
+	}
+
+	if got, want := len(progressList), 1; got != want {
+		t.Fatalf("got %d progress updates, want %d", got, want)
+	}
+	if got, want := progressList[0].IsCompleted, true; got != want {
+		t.Errorf("got isCompleted %t, want %t", got, want)
+	}
+	if got, want := progressList[0].ErrorMessage, "Download error occurred."; got != want {
+		t.Errorf("got error message %q, want %q", got, want)
+	}
+}
+
+// TestLoadModelEPOverride ensures LoadModel honors execution provider overrides
+// derived from the catalog when selecting the model variant to load.
+func TestLoadModelEPOverride(t *testing.T) {
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels("model-4-generic-gpu:1"),
+		mockJSON("/openai/load/model-4-generic-gpu:1", json.RawMessage(`{}`))))
+	defer srv.Close()
+	serviceURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m := NewManager()
+	m.serviceURL = serviceURL
+	m.client = srv.Client()
+
+	// After ListCatalogModels runs, EPOverride for generic-gpu will be "cuda"
+	// First call ensures the override is applied
+	if _, err := m.ListCatalogModels(t.Context()); err != nil {
+		t.Fatalf("failed to list catalog models: %v", err)
+	}
+
+	result, err := m.LoadModel(t.Context(), "model-4", nil)
+	if err != nil {
+		t.Fatalf("failed to load model: %v", err)
+	}
+	if got, want := result.ID, "model-4-generic-gpu:1"; got != want {
+		t.Errorf("got model ID %q, want %q", got, want)
+	}
+}
+
+// TestLoadModelError validates that LoadModel surfaces errors when the target
+// model is absent from the local cache.
+func TestLoadModelError(t *testing.T) {
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockLocalModels()))
+	defer srv.Close()
+	serviceURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m := NewManager()
+	m.serviceURL = serviceURL
+	m.client = srv.Client()
+
+	_, err = m.LoadModel(t.Context(), "model-3", nil)
+	if err == nil {
+		t.Fatalf("got nil, want non-nil error")
+	}
+
+	errMsg := "not found in local models"
+	if !strings.Contains(err.Error(), errMsg) {
+		t.Errorf("got error %v, want %q", err, errMsg)
+	}
+}
+
+// TestUnloadModel verifies UnloadModel issues the unload request successfully
+// and reports any resulting error.
+func TestUnloadModel(t *testing.T) {
+	modelID := "model-2-npu:1"
+	urlPath := fmt.Sprintf("/openai/unload/%s", modelID)
+	srv := httptest.NewServer(newHandler(
+		mockCatalog(true),
+		mockJSON(urlPath, json.RawMessage(`{}`))))
+	defer srv.Close()
+	serviceURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("failed to parse service URL: %v", err)
+	}
+
+	m := NewManager()
+	m.serviceURL = serviceURL
+	m.client = srv.Client()
+
+	if got, want := m.UnloadModel(t.Context(), modelID, nil, false), error(nil); got != want {
+		t.Errorf("got error %v, want %v", got, want)
+	}
+}
+
+// TestIsModelUpgradeable checks that IsModelUpgradable reports whether a local
+// model is older than the catalog version and gracefully handles missing data.
+func TestIsModelUpgradeable(t *testing.T) {
 	tests := []struct {
-		aliasOrModelID string
-		wantModelID    string
+		name    string
+		modelID string
+		routes  []route
+		want    bool
 	}{
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-qnn",
-			wantModelID:    "Phi-4-mini-instruct-qnn",
+			name:    "cached_older_than_latest",
+			modelID: "model-2",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels("model-2-npu:1"),
+			},
+			want: true,
 		},
 		{
-			aliasOrModelID: "Phi-4-mini-instruct-cuda-gpu",
-			wantModelID:    "Phi-4-mini-instruct-cuda-gpu",
+			name:    "latest_version_cached",
+			modelID: "model-2",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels("model-2-npu:2"),
+			},
+			want: false,
 		},
 		{
-			aliasOrModelID: "phi-4-mini",
-			wantModelID:    "Phi-4-mini-instruct-qnn",
+			name:    "model_missing_from_catalog",
+			modelID: "model-2",
+			routes: []route{
+				mockJSON("/foundry/list", json.RawMessage(`[]`)),
+				mockLocalModels("model-2-npu:1"),
+			},
+			want: false,
 		},
 	}
+
 	for _, tc := range tests {
-		t.Run(tc.aliasOrModelID, func(t *testing.T) {
-			result, err := m.GetModelInfo(t.Context(), tc.aliasOrModelID)
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(tc.routes...))
+			defer srv.Close()
+			serviceURL, err := url.Parse(srv.URL)
 			if err != nil {
-				t.Fatalf("failed to get model Info for %q: %v", tc.aliasOrModelID, err)
+				t.Fatalf("failed to parse service URL: %v", err)
 			}
-			if got, want := result.ID, tc.wantModelID; got != want {
-				t.Errorf("got model name %q, want %q", got, want)
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			got, err := m.IsModelUpgradable(t.Context(), tc.modelID, nil)
+			if err != nil {
+				t.Fatalf("failed to check if model is upgradeable: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got model to be upgradeable %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUpgradeModel validates UpgradeModel downloads the latest model variant
+// when available and surfaces catalog or download failures.
+func TestUpgradeModel(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		wantModelID string
+		routes      []route
+		err         error
+	}{
+		{
+			name:        "upgrade_model_success",
+			modelID:     "model-3",
+			wantModelID: "model-3-cuda-gpu:1",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels(),
+				mockJSON("/openai/download", json.RawMessage(`{"success": true, "errorMessage": null}`)),
+			},
+			err: nil,
+		},
+		{
+			name:        "upgrade_model_download_fails",
+			modelID:     "model-3",
+			wantModelID: "",
+			routes: []route{
+				mockCatalog(true),
+				mockLocalModels(),
+				mockJSON("/openai/download", json.RawMessage(`{"success": false, "errorMessage": "Simulated download failure."}`))},
+			err: ErrModelUpgradeFailed,
+		},
+		{
+			name:        "upgrade_model_not_found",
+			modelID:     "missing-model",
+			wantModelID: "",
+			routes: []route{
+				mockJSON("/foundry/list", json.RawMessage(`[]`)),
+			},
+			err: ErrModelNotInCatalog,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(newHandler(tc.routes...))
+			defer srv.Close()
+			serviceURL, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("failed to parse service URL: %v", err)
+			}
+
+			m := NewManager()
+			m.serviceURL = serviceURL
+			m.client = srv.Client()
+
+			mi, err := m.UpgradeModel(t.Context(), tc.modelID, nil, "")
+			if got, want := err, tc.err; !errors.Is(got, want) {
+				t.Fatalf("got error %v, want %v", got, want)
+			}
+			if got, want := mi.ID, tc.wantModelID; got != want {
+				t.Errorf("got model ID %q, want %q", got, want)
 			}
 		})
 	}
@@ -285,8 +998,7 @@ func TestGetModelInfoQNNPriority(t *testing.T) {
 // TestGetCacheLocation tests the GetCacheLocation method to verify it correctly
 // retrieves the filesystem path where Foundry Local stores cached models.
 func TestGetCacheLocation(t *testing.T) {
-	json := json.RawMessage(`{"modelDirPath": "/models"}`)
-	srv := httptest.NewServer(newHandler(route{"/openai/status", json, "application/json"}))
+	srv := httptest.NewServer(newHandler(mockJSON("/openai/status", json.RawMessage(`{"modelDirPath": "/models"}`))))
 	defer srv.Close()
 	serviceURL, err := url.Parse(srv.URL)
 	if err != nil {
@@ -303,696 +1015,5 @@ func TestGetCacheLocation(t *testing.T) {
 	}
 	if got, want := path, "/models"; got != want {
 		t.Errorf("got cache location %q, want %q", got, want)
-	}
-}
-
-// TestListCacheModels tests the ListCachedModels method to ensure it correctly
-// retrieves information about all models currently cached locally and available
-// for loading.
-func TestListCacheModels(t *testing.T) {
-	model := json.RawMessage(`["model1"]`)
-	srv := httptest.NewServer(newHandler(route{"/openai/models", model, "application/json"}))
-	defer srv.Close()
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogModels = []ModelInfo{
-		{
-			ID:           "model1",
-			Alias:        "alias",
-			URI:          "http://model",
-			ProviderType: "huggingface",
-		},
-	}
-
-	result, err := m.ListCachedModels(t.Context())
-	if err != nil {
-		t.Fatalf("failed to list cached models: %v", err)
-	}
-	if got, want := len(result), 1; got != want {
-		t.Errorf("got %d models, want %d", got, want)
-	}
-	if got, want := result[0].ID, "model1"; got != want {
-		t.Errorf("got model ID %q, want %q", got, want)
-	}
-}
-
-// TestDownloadModel tests the DownloadModel method to verify it correctly
-// downloads a model to the local cache and handles the download response
-// properly including success status and error messages.
-func TestDownloadModel(t *testing.T) {
-	response := json.RawMessage(`some log text... {"success": true, "errorMessage": null}`)
-
-	srv := httptest.NewServer(newHandler(
-		route{"/openai/download", response, "application/json"},
-		route{"/openai/models", json.RawMessage(`[]`), "application/json"}))
-	defer srv.Close()
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	modelID := "test-model"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "alias1",
-		URI:          "http://model.uri",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogMap = map[string]ModelInfo{
-		modelID: model,
-	}
-	m.catalogModels = []ModelInfo{model}
-
-	tests := []struct {
-		name    string
-		modelID string
-		isError bool
-	}{
-		{
-			name:    "download_model_success",
-			modelID: modelID,
-			isError: false,
-		},
-		{
-			name:    "download_model_not_found",
-			modelID: "non-existent",
-			isError: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := m.DownloadModel(t.Context(), tc.modelID)
-			if tc.isError {
-				if err == nil {
-					t.Fatalf("got nil error for model ID %q, want error", tc.modelID)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("failed to download model: %v", err)
-			}
-			if got, want := result.ID, tc.modelID; got != want {
-				t.Errorf("got model ID %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-// TestLoadModel tests the LoadModel method to verify it correctly loads
-// a previously downloaded model into memory for inference, including
-// proper execution provider selection and timeout handling.
-func TestLoadModel(t *testing.T) {
-	modelID := "modelX"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "aliasX",
-		URI:          "http://model",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	tests := []struct {
-		name    string
-		result  json.RawMessage
-		isError bool
-	}{
-		{
-			name:    "load_model_success",
-			result:  json.RawMessage(fmt.Sprintf(`["%s"]`, modelID)),
-			isError: false,
-		},
-		{
-			name:    "load_model_not_found",
-			result:  json.RawMessage(`[]`),
-			isError: true,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(newHandler(
-				route{"/openai/models", tc.result, "application/json"},
-				route{"/openai/load/" + modelID, json.RawMessage(`{}`), "application/json"}))
-			defer srv.Close()
-
-			serviceURL, err := url.Parse(srv.URL)
-			if err != nil {
-				t.Fatalf("failed to parse service URL: %v", err)
-			}
-
-			m := NewManager()
-			m.serviceURL = serviceURL
-			m.client = srv.Client()
-			m.catalogMap = map[string]ModelInfo{
-				modelID:     model,
-				model.Alias: model,
-			}
-			m.catalogModels = []ModelInfo{model}
-
-			result, err := m.LoadModel(t.Context(), modelID)
-			if tc.isError {
-				if err == nil {
-					t.Fatal("got nil error, want error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("failed to load model: %v", err)
-			}
-			if got, want := result.ID, modelID; got != want {
-				t.Errorf("got model ID %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-// TestListLoadedModels tests the ListLoadedModels method to verify it correctly
-// retrieves information about all models currently loaded in memory and
-// available for inference.
-func TestListLoadedModels(t *testing.T) {
-	modelID := "modelX"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "aliasX",
-		URI:          "http://model",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	tests := []struct {
-		name    string
-		result  json.RawMessage
-		wantID  string
-		wantLen int
-	}{
-		{
-			name:    "load_model_success",
-			result:  json.RawMessage(fmt.Sprintf(`["%s"]`, modelID)),
-			wantID:  modelID,
-			wantLen: 1,
-		},
-		{
-			name:    "load_model_not_found",
-			result:  json.RawMessage(`null`),
-			wantID:  "",
-			wantLen: 0,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(newHandler(
-				route{"/openai/loadedmodels", tc.result, "application/json"}))
-			defer srv.Close()
-
-			serviceURL, err := url.Parse(srv.URL)
-			if err != nil {
-				t.Fatalf("failed to parse service URL: %v", err)
-			}
-
-			m := NewManager()
-			m.serviceURL = serviceURL
-			m.client = srv.Client()
-			m.catalogMap = map[string]ModelInfo{
-				modelID: model,
-			}
-			m.catalogModels = []ModelInfo{model}
-
-			result, err := m.ListLoadedModels(t.Context())
-			if err != nil {
-				t.Fatalf("failed to list models: %v", err)
-			}
-			if got, want := len(result), tc.wantLen; got != want {
-				t.Errorf("got %d loaded models, want %d", got, want)
-			}
-			if tc.wantLen == 0 {
-				return
-			}
-			if got, want := result[0].ID, modelID; got != want {
-				t.Errorf("got model ID %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-// TestUnloadModel tests the UnloadModel method to verify it correctly
-// removes a model from memory, freeing up resources while keeping
-// the model cached locally for future loading.
-func TestUnloadModel(t *testing.T) {
-	modelID := "modelY"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "aliasY",
-		URI:          "http://model",
-		ProviderType: "huggingface",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	urlPath := fmt.Sprintf("/openai/unload/%s", modelID)
-	srv := httptest.NewServer(newHandler(
-		route{urlPath, json.RawMessage{}, "application/json"}))
-	defer srv.Close()
-
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogMap = map[string]ModelInfo{
-		modelID: model,
-	}
-	m.catalogModels = []ModelInfo{model}
-
-	if got, want := m.UnloadModel(t.Context(), modelID), error(nil); got != want {
-		t.Errorf("got error %v, want %v", got, want)
-	}
-}
-
-// TestDownloadModelWithProgressDownload tests the DownloadModelWithProgress method
-// to verify it correctly reports download progress through a channel and handles
-// the complete download process with progress updates.
-func TestDownloadModelWithProgressDownload(t *testing.T) {
-	modelID := "test-model"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "alias1",
-		URI:          "http://model.uri",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString("Total 0.00% Downloading model.onnx.data\n")
-	buf.WriteString("[DONE] All Completed!\n")
-	buf.WriteString(`{"success": true, "errorMessage": null}`)
-
-	srv := httptest.NewServer(newHandler(
-		route{"/openai/download", buf.Bytes(), "application/json"},
-		route{"/openai/models", json.RawMessage(`[]`), "application/json"}))
-	defer srv.Close()
-
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogMap = map[string]ModelInfo{
-		modelID: model,
-	}
-	m.catalogModels = []ModelInfo{model}
-
-	progressChan, err := m.DownloadModelWithProgress(t.Context(), modelID)
-	if err != nil {
-		t.Fatalf("failed to download model with progress: %v", err)
-	}
-
-	progressList := []ModelDownloadProgress{}
-	for progress := range progressChan {
-		progressList = append(progressList, progress)
-	}
-
-	want := []struct {
-		name         string
-		percentage   float64
-		isCompleted  bool
-		modelInfo    ModelInfo
-		errorMessage string
-	}{
-		{percentage: 0.0, isCompleted: false, modelInfo: ModelInfo{}, errorMessage: ""},
-		{percentage: 100.0, isCompleted: true, modelInfo: model, errorMessage: ""},
-	}
-
-	for i, progress := range progressList {
-		if got, want := progress.Percentage, want[i].percentage; got != want {
-			t.Errorf("got percentage %.2f, want %.2f", got, want)
-		}
-		if got, want := progress.IsCompleted, want[i].isCompleted; got != want {
-			t.Errorf("got isCompleted %v, want %v", got, want)
-		}
-		if got, want := progress.ModelInfo.ID, want[i].modelInfo.ID; got != want {
-			t.Errorf("got model ID %q, want %q", got, want)
-		}
-		if got, want := progress.ErrorMessage, want[i].errorMessage; got != want {
-			t.Errorf("got error message %q, want %q", got, want)
-		}
-	}
-}
-
-// TestDownloadModelWithProgressExistingModel tests the DownloadModelWithProgress method
-// when attempting to download a model that already exists in the local cache,
-// verifying it immediately returns completion without downloading.
-func TestDownloadModelWithProgressExistingModel(t *testing.T) {
-	modelID := "existing-model"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "alias1",
-		URI:          "http://model.uri",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	srv := httptest.NewServer(newHandler(
-		route{"/openai/models", json.RawMessage(fmt.Sprintf(`["%s"]`, modelID)), "application/json"}))
-	defer srv.Close()
-
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogMap = map[string]ModelInfo{
-		modelID: model,
-	}
-	m.catalogModels = []ModelInfo{model}
-
-	progressChan, err := m.DownloadModelWithProgress(t.Context(), modelID)
-	if err != nil {
-		t.Fatalf("failed to download model with progress: %v", err)
-	}
-
-	progressList := []ModelDownloadProgress{}
-	for progress := range progressChan {
-		progressList = append(progressList, progress)
-	}
-
-	if got, want := len(progressList), 1; got != want {
-		t.Fatalf("got %d progress updates, want %d", got, want)
-	}
-	if got, want := progressList[0].Percentage, 100.0; got != want {
-		t.Errorf("got percentage %.2f, want %.2f", got, want)
-	}
-	if got, want := !progressList[0].IsCompleted, false; got != want {
-		t.Errorf("got isCompleted %v, want %v", got, want)
-	}
-	if got, want := progressList[0].ModelInfo.ID, modelID; got != want {
-		t.Errorf("got model ID %q, want %q", got, want)
-	}
-	if got, want := progressList[0].ErrorMessage, ""; got != want {
-		t.Errorf("got error message %q, want %q", got, want)
-	}
-}
-
-// TestDownloadModelWithProgressError tests the DownloadModelWithProgress method
-// when a download fails, verifying it properly reports error status through
-// the progress channel with appropriate error messaging.
-func TestDownloadModelWithProgressError(t *testing.T) {
-	modelID := "test-model"
-	model := ModelInfo{
-		ID:           modelID,
-		Alias:        "alias1",
-		URI:          "http://model.uri",
-		ProviderType: "openai",
-		Runtime: Runtime{
-			DeviceType:        DeviceTypeCPU,
-			ExecutionProvider: ExecutionProviderCPU,
-		},
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString("[DONE] All Completed!\n")
-	buf.WriteString(`{"success": false, "errorMessage": "Download error occurred."}`)
-
-	srv := httptest.NewServer(newHandler(
-		route{"/openai/download", buf.Bytes(), "application/json"},
-		route{"/openai/models", json.RawMessage(`[]`), "application/json"}))
-	defer srv.Close()
-
-	serviceURL, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("failed to parse service URL: %v", err)
-	}
-
-	m := NewManager()
-	m.serviceURL = serviceURL
-	m.client = srv.Client()
-	m.catalogMap = map[string]ModelInfo{
-		modelID: model,
-	}
-	m.catalogModels = []ModelInfo{model}
-
-	progressChan, err := m.DownloadModelWithProgress(t.Context(), modelID)
-	if err != nil {
-		t.Fatalf("failed to download model with progress: %v", err)
-	}
-
-	progressList := []ModelDownloadProgress{}
-	for progress := range progressChan {
-		progressList = append(progressList, progress)
-	}
-
-	if got, want := len(progressList), 1; got != want {
-		t.Fatalf("got %d progress updates, want %d", got, want)
-	}
-	if got, want := !progressList[0].IsCompleted, false; got != want {
-		t.Errorf("got isCompleted %v, want %v", got, want)
-	}
-	if got, want := progressList[0].ErrorMessage, "Download error occurred."; got != want {
-		t.Errorf("got error message %q, want %q", got, want)
-	}
-}
-
-// TestGetVersion tests the GetVersion function to verify that version numbers
-// are correctly extracted from model IDs, including cases with and without
-// version suffixes, empty model IDs, and multiple colons in the ID.
-func TestGetVersion(t *testing.T) {
-	tests := []struct {
-		name     string
-		modelID  string
-		expected int
-	}{
-		{
-			name:     "model_id_with_version",
-			modelID:  "test-model:1",
-			expected: 1,
-		},
-		{
-			name:     "model_id_without_version",
-			modelID:  "test-model",
-			expected: -1,
-		},
-		{
-			name:     "empty_model_id",
-			modelID:  "",
-			expected: -1,
-		},
-		{
-			name:     "model_id_with_empty_version",
-			modelID:  "test-model:",
-			expected: -1,
-		},
-		{
-			name:     "model_id_with_multiple_colons",
-			modelID:  "test:model:2",
-			expected: 2,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			version := GetVersion(tc.modelID)
-			if version != tc.expected {
-				t.Errorf("got version %d, want %d", version, tc.expected)
-			}
-		})
-	}
-}
-
-func TestUpgradeModel(t *testing.T) {
-	tests := []struct {
-		name         string
-		modelID      string
-		alias        string
-		token        string
-		catalogJSON  json.RawMessage
-		cacheJSON    json.RawMessage
-		downloadJSON json.RawMessage
-		err          error
-	}{
-		{
-			name:    "upgrade_model_success",
-			modelID: "model-1:2",
-			alias:   "model-1",
-			token:   "token",
-			catalogJSON: json.RawMessage(`[{
-				"name": "model-1:2",
-				"alias": "model-1",
-				"uri": "http://model.uri",
-				"providerType": "openai",
-				"runtime": {
-					"deviceType": "cpu",
-					"executionProvider": "CPU"
-				}
-			}]`),
-			cacheJSON:    json.RawMessage(`[]`),
-			downloadJSON: json.RawMessage(`{"success": true, "errorMessage": null}`),
-			err:          nil,
-		}, {
-			name:         "upgrade_model_not_found",
-			modelID:      "",
-			alias:        "missing-model",
-			token:        "",
-			catalogJSON:  json.RawMessage(`[]`),
-			cacheJSON:    json.RawMessage(`[]`),
-			downloadJSON: json.RawMessage(`{"success": true, "errorMessage": null}`),
-			err:          ErrModelNotInCatalog,
-		}, {
-			name:    "upgrade_model_download_error",
-			modelID: "",
-			alias:   "model-1",
-			token:   "",
-			catalogJSON: json.RawMessage(`[{
-				"name": "model-1:2",
-				"alias": "model-1",
-				"uri": "http://model.uri",
-				"providerType": "openai",
-				"runtime": {
-					"deviceType": "cpu",
-					"executionProvider": "CPU"
-				}
-			}]`),
-			cacheJSON:    json.RawMessage(`[]`),
-			downloadJSON: json.RawMessage(`{"success": false, "errorMessage": "simulated download failure"}`),
-			err:          ErrModelUpgradeFailed,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(newHandler(
-				route{"/foundry/list", tc.catalogJSON, "application/json"},
-				route{"/openai/models", tc.cacheJSON, "application/json"},
-				route{"/openai/download", tc.downloadJSON, "application/json"}))
-			defer srv.Close()
-
-			serviceURL, err := url.Parse(srv.URL)
-			if err != nil {
-				t.Fatalf("failed to parse service URL: %v", err)
-			}
-
-			m := NewManager()
-			m.serviceURL = serviceURL
-			m.client = srv.Client()
-
-			mi, err := m.UpgradeModel(t.Context(), tc.alias, tc.token)
-			if got, want := err, tc.err; !errors.Is(got, want) {
-				t.Fatalf("got error %v, want %v", got, want)
-			}
-			if got, want := mi.ID, tc.modelID; got != want {
-				t.Errorf("got model ID %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-func TestIsModelUpgradeable(t *testing.T) {
-
-	tests := []struct {
-		name        string
-		alias       string
-		catalogJSON json.RawMessage
-		cacheJSON   json.RawMessage
-		want        bool
-	}{
-		{
-			name:  "newer_version_available",
-			alias: "model-1",
-			catalogJSON: json.RawMessage(`[{
-				"name": "model-1:2",
-				"alias": "model-1",
-				"uri": "http://model.uri",
-				"providerType": "openai",
-				"runtime": {
-					"deviceType": "cpu",
-					"executionProvider": "CPU"
-				}
-			}]`),
-			cacheJSON: json.RawMessage(`["model-1:1"]`),
-			want:      true,
-		},
-		{
-			name:  "latest_version_cached",
-			alias: "model-1",
-			catalogJSON: json.RawMessage(`[{
-				"name": "model-1:2",
-				"alias": "model-1",
-				"uri": "http://model.uri",
-				"providerType": "openai",
-				"runtime": {
-					"deviceType": "cpu",
-					"executionProvider": "CPU"
-				}
-			}]`),
-			cacheJSON: json.RawMessage(`["model-1:2"]`),
-			want:      false,
-		}, {
-			name:        "model_not_found",
-			alias:       "missing-model",
-			catalogJSON: json.RawMessage(`[]`),
-			cacheJSON:   json.RawMessage(`[]`),
-			want:        false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(newHandler(
-				route{"/foundry/list", tc.catalogJSON, "application/json"},
-				route{"/openai/models", tc.cacheJSON, "application/json"}))
-			defer srv.Close()
-
-			serviceURL, err := url.Parse(srv.URL)
-			if err != nil {
-				t.Fatalf("failed to parse service URL: %v", err)
-			}
-
-			m := NewManager()
-			m.serviceURL = serviceURL
-			m.client = srv.Client()
-
-			got, err := m.IsModelUpgradable(t.Context(), tc.alias)
-			if err != nil {
-				t.Fatalf("failed to check if model is upgradeable: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("got model to be upgradeable %t, want %t", got, tc.want)
-			}
-		})
 	}
 }

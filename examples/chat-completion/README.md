@@ -5,8 +5,8 @@ This example demonstrates how to use the Foundry Local SDK with the official Ope
 ## What This Example Shows
 
 1. **Model Setup**
-   - Starting a specific model using the convenience `StartModel()` function
-   - Retrieving model information for API configuration
+   - Starting a specific model using the convenience `StartModel(ctx, alias, device)` function (use `nil` for default device selection)
+   - Retrieving model information for API configuration with optional device filtering
 
 2. **OpenAI Client Integration**
    - Using the official `openai-go` client library

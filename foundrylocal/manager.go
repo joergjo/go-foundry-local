@@ -26,12 +26,12 @@
 //	}
 //
 //	// Download and load a model
-//	modelInfo, err := manager.DownloadModel(ctx, "qwen2.5-0.5b")
+//	modelInfo, err := manager.DownloadModel(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
-//	loadedModel, err := manager.LoadModel(ctx, "qwen2.5-0.5b")
+//	loadedModel, err := manager.LoadModel(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
@@ -46,7 +46,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -71,30 +70,32 @@ const (
 	DeviceTypeInvalid = "Invalid"
 )
 
-// ExecutionProvider represents the execution provider for model inference.
-type ExecutionProvider string
+var (
+	// version holds the current version of the SDK, set at build time.
+	version string
 
-const (
-	// ExecutionProviderInvalid represents an invalid or unknown execution provider.
-	ExecutionProviderInvalid ExecutionProvider = "Invalid"
-	// ExecutionProviderCPU indicates CPU-based execution.
-	ExecutionProviderCPU = "CPU"
-	// ExecutionProviderWebGPU indicates WebGPU-based execution.
-	ExecutionProviderWebGPU = "WebGPU"
-	// ExecutionProviderCUDA indicates CUDA-based execution for NVIDIA GPUs.
-	ExecutionProviderCUDA = "CUDA"
-	// ExecutionProviderQNN indicates Qualcomm Neural Network SDK execution.
-	ExecutionProviderQNN = "QNN"
+	// testIsRunning is a regular expression used to extract service endpoint URLs from foundry status output.
+	testIsRunning = regexp.MustCompile(`is running on (http://.*)\s+`)
+
+	// ErrModelNotInCatalog is returned when a requested model is not found in the Foundry Local catalog.
+	ErrModelNotInCatalog = errors.New("model not found in catalog")
+
+	// ErrModelUpgradeFailed is returned when a model upgrade operation fails.
+	ErrModelUpgradeFailed = errors.New("failed to upgrade model")
+
+	// ErrReadLoadedModels is returned when the list of loaded models cannot be read.
+	ErrReadLoadedModels = errors.New("failed to read loaded models")
 )
 
-// testIsRunning is a regular expression used to extract service endpoint URLs from foundry status output.
-var testIsRunning = regexp.MustCompile(`is running on (http://.*)\s+`)
+type sdkRoundTripper struct {
+	t http.RoundTripper
+}
 
-// ErrModelNotInCatalog is returned when a requested model is not found in the Foundry Local catalog.
-var ErrModelNotInCatalog = errors.New("model not found in catalog")
-
-// ErrModelUpgradeFailed is returned when a model upgrade operation fails.
-var ErrModelUpgradeFailed = errors.New("failed to upgrade model")
+func (rt *sdkRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	req := r.Clone(r.Context())
+	req.Header.Set("User-Agent", "go-foundrylocal/"+version)
+	return rt.t.RoundTrip(req)
+}
 
 // Manager provides methods to interact with the Foundry Local runtime.
 // It manages the lifecycle of the Foundry Local service and provides
@@ -104,7 +105,7 @@ var ErrModelUpgradeFailed = errors.New("failed to upgrade model")
 //   - HTTP client for API communication
 //   - Service URL for the running Foundry Local instance
 //   - Cached model catalog and mapping
-//   - Execution provider priority configuration
+//   - OS specific configuration
 //
 // Example:
 //
@@ -115,11 +116,10 @@ var ErrModelUpgradeFailed = errors.New("failed to upgrade model")
 //		log.Fatal(err)
 //	}
 type Manager struct {
-	client        *http.Client
-	serviceURL    *url.URL
-	catalogModels []ModelInfo
-	catalogMap    map[string]ModelInfo
-	priorityMap   map[ExecutionProvider]int
+	client             *http.Client
+	serviceURL         *url.URL
+	catalogModels      []ModelInfo
+	useWindowsFallback bool
 
 	// ApiKey is the API key used for authentication with external services.
 	// Default value is "OPENAI_API_KEY".
@@ -144,16 +144,16 @@ type Manager struct {
 //	)
 func NewManager(opts ...ManagerOption) *Manager {
 	m := &Manager{
-		ApiKey: "OPENAI_API_KEY",
+		ApiKey:             "OPENAI_API_KEY",
+		useWindowsFallback: false,
 	}
 
+	// Make sure we always apply OS-specific defaults
+	opts = append([]ManagerOption{WithAutoConfigure()}, opts...)
 	for _, opt := range opts {
 		opt(m)
 	}
 
-	if m.priorityMap == nil {
-		WithAutoConfigure()(m)
-	}
 	if m.Logger == nil {
 		m.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -193,7 +193,9 @@ func (m *Manager) Endpoint() *url.URL {
 // StartModel is a convenience function that creates a new Manager, starts the service,
 // and prepares the specified model for use by downloading and loading it.
 // This is useful for quick setup scenarios where you want to get a model running
-// with minimal setup code.
+// with minimal setup code. The device parameter allows callers to hint which
+// device type (CPU, GPU, NPU) should be used; pass nil to let the SDK decide
+// automatically.
 //
 // The function performs the following steps:
 //  1. Creates a new Manager with default settings
@@ -204,18 +206,18 @@ func (m *Manager) Endpoint() *url.URL {
 //
 // Example:
 //
-//	manager, err := foundrylocal.StartModel(ctx, "qwen2.5-0.5b")
+//	manager, err := foundrylocal.StartModel(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //	defer manager.StopService(ctx)
-func StartModel(ctx context.Context, aliasorModelID string) (*Manager, error) {
+func StartModel(ctx context.Context, aliasorModelID string, device *DeviceType) (*Manager, error) {
 	m := NewManager()
 	if err := m.StartService(ctx); err != nil {
 		return nil, err
 	}
 
-	modelInfo, err := m.GetModelInfo(ctx, aliasorModelID)
+	modelInfo, err := m.GetModelInfo(ctx, aliasorModelID, device)
 	if err != nil {
 		if errors.Is(err, ErrModelNotInCatalog) {
 			m.Logger.ErrorContext(ctx, "model not found in catalog", "aliasOrModelID", aliasorModelID)
@@ -223,11 +225,11 @@ func StartModel(ctx context.Context, aliasorModelID string) (*Manager, error) {
 		return nil, err
 	}
 
-	if _, err := m.DownloadModel(ctx, modelInfo.ID); err != nil {
+	if _, err := m.DownloadModel(ctx, modelInfo.ID, device); err != nil {
 		return nil, err
 	}
 
-	if _, err := m.LoadModel(ctx, aliasorModelID); err != nil {
+	if _, err := m.LoadModel(ctx, aliasorModelID, device); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -256,7 +258,8 @@ func (m *Manager) StartService(ctx context.Context) error {
 
 	m.serviceURL = endpoint
 	m.client = &http.Client{
-		Timeout: time.Duration(2) * time.Hour,
+		Timeout:   time.Duration(2) * time.Hour,
+		Transport: &sdkRoundTripper{http.DefaultTransport},
 	}
 	m.Logger.InfoContext(ctx, "Foundry service started successfully", "endpoint", m.serviceURL.String())
 	return nil
@@ -329,7 +332,25 @@ func (m *Manager) ListCatalogModels(ctx context.Context) ([]ModelInfo, error) {
 		return []ModelInfo{}, err
 	}
 
-	m.catalogModels = models
+	switch models {
+	case nil:
+		models = []ModelInfo{}
+	default:
+		m.catalogModels = models
+	}
+
+	// Override execution provider to CUDA for generic-gpu models if CUDA is available
+	hasCUDA := slices.ContainsFunc(m.catalogModels, func(m ModelInfo) bool {
+		return m.Runtime.ExecutionProvider == "CUDAExecutionProvider"
+	})
+	if hasCUDA {
+		for i := range m.catalogModels {
+			if strings.Contains(strings.ToLower(m.catalogModels[i].ID), "-generic-gpu") {
+				m.catalogModels[i].EPOverride = "cuda"
+			}
+		}
+	}
+
 	return m.catalogModels, nil
 }
 
@@ -343,12 +364,12 @@ func (m *Manager) ListCatalogModels(ctx context.Context) ([]ModelInfo, error) {
 //	models, err := manager.ListCatalogModels(ctx)
 func (m *Manager) RefreshCatalog() {
 	m.catalogModels = nil
-	m.catalogMap = nil
 }
 
 // GetModelInfo retrieves detailed information about a specific model by its ID or alias.
-// Returns the model information, a boolean indicating if the model was found,
-// and any error that occurred.
+// The optional device parameter narrows alias matches to a preferred device type;
+// pass nil to allow any device. The method returns the model metadata or
+// ErrModelNotInCatalog if no match is found.
 //
 // The function uses a priority system when multiple models share the same alias,
 // preferring models with higher-priority execution providers based on the Manager's
@@ -356,7 +377,7 @@ func (m *Manager) RefreshCatalog() {
 //
 // Example:
 //
-//	modelInfo, err := manager.GetModelInfo(ctx, "qwen2.5-0.5b")
+//	modelInfo, err := manager.GetModelInfo(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		if errors.Is(err, foundrylocal.ErrModelNotInCatalog) {
 //			log.Fatal("Model not found in catalog")
@@ -364,38 +385,69 @@ func (m *Manager) RefreshCatalog() {
 //		log.Fatal(err)
 //	}
 //	fmt.Printf("Found model: %s\n", modelInfo.DisplayName)
-func (m *Manager) GetModelInfo(ctx context.Context, aliasOrModelID string) (ModelInfo, error) {
-	dict, err := m.getCatalogMap(ctx)
+func (m *Manager) GetModelInfo(ctx context.Context, aliasOrModelID string, device *DeviceType) (ModelInfo, error) {
+	catalog, err := m.ListCatalogModels(ctx)
 	if err != nil {
-		return ModelInfo{}, err
+		return ModelInfo{}, ErrModelNotInCatalog
 	}
-	model, ok := dict[aliasOrModelID]
-	if !ok {
-		if !strings.Contains(aliasOrModelID, ":") {
-			prefix := strings.ToLower(aliasOrModelID) + ":"
-			bestVersion := -1
-			found := false
 
-			for k, v := range dict {
-				if strings.HasPrefix(strings.ToLower(k), prefix) {
-					if version := GetVersion(k); version > bestVersion {
-						bestVersion = version
-						model = v
-						found = true
-					}
-				}
-			}
-
-			if !found {
-				return ModelInfo{}, ErrModelNotInCatalog
-			}
-		} else {
-			// Input contains a version suffix (aliasOrModelID includes ':') but no exact match in catalog
-			return ModelInfo{}, ErrModelNotInCatalog
+	// 1) Try to match by full ID exactly (with or without ':' for backwards compatibility)
+	for _, model := range catalog {
+		if strings.EqualFold(model.ID, aliasOrModelID) {
+			return model, nil
 		}
 	}
 
-	return model, nil
+	// 2) Try to match by ID prefix "<id>:" and pick the highest version
+	prefix := strings.ToLower(aliasOrModelID) + ":"
+	bestVersion := -1
+	var best *ModelInfo
+
+	for _, m := range catalog {
+		if strings.HasPrefix(strings.ToLower(m.ID), prefix) {
+			if version := GetVersion(m.ID); version > bestVersion {
+				bestVersion = version
+				best = &m
+			}
+		}
+	}
+
+	if best != nil {
+		return *best, nil
+	}
+
+	// 3) Match by alias, optionally filtered by device
+	var aliasMatches []ModelInfo
+	for _, model := range catalog {
+		if strings.EqualFold(model.Alias, aliasOrModelID) {
+			aliasMatches = append(aliasMatches, model)
+		}
+	}
+
+	if device != nil {
+		aliasMatches = slices.DeleteFunc(aliasMatches, func(m ModelInfo) bool {
+			return m.Runtime.DeviceType != *device
+		})
+	}
+
+	if len(aliasMatches) == 0 {
+		return ModelInfo{}, ErrModelNotInCatalog
+	}
+
+	// Catalog/list is assumed pre-sorted by service:
+	// NPU → non-generic-GPU → generic-GPU → non-generic-CPU → CPU
+	candidate := aliasMatches[0]
+	if m.useWindowsFallback && strings.Contains(strings.ToLower(candidate.ID), "-generic-gpu") &&
+		candidate.EPOverride == "" {
+		for _, m := range catalog {
+			if strings.EqualFold(m.Alias, aliasOrModelID) && m.Runtime.DeviceType == DeviceTypeCPU {
+				candidate = m
+				break
+			}
+		}
+	}
+
+	return candidate, nil
 }
 
 // GetCacheLocation returns the filesystem path where Foundry Local stores cached models.
@@ -479,8 +531,10 @@ func (m *Manager) ListCachedModels(ctx context.Context) ([]ModelInfo, error) {
 }
 
 // DownloadModel downloads a model to the local cache if it's not already present.
-// By default, if the model is already cached, this operation is skipped.
-// Use WithForceDownload() to re-download existing models.
+// The optional device parameter indicates the desired device type to match when
+// resolving aliases; pass nil to accept any device. By default, if the model is
+// already cached, this operation is skipped. Use WithForceDownload() to re-download
+// existing models.
 //
 // Supported options:
 //   - WithToken(token): Provide authentication token for private models
@@ -489,24 +543,24 @@ func (m *Manager) ListCachedModels(ctx context.Context) ([]ModelInfo, error) {
 // Example:
 //
 //	// Basic download
-//	modelInfo, err := manager.DownloadModel(ctx, "qwen2.5-0.5b")
+//	modelInfo, err := manager.DownloadModel(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
 //	// Download with authentication
-//	modelInfo, err := manager.DownloadModel(ctx, "private-model",
+//	modelInfo, err := manager.DownloadModel(ctx, "private-model", nil,
 //		foundrylocal.WithToken("your-token"))
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts ...DownloadOption) (ModelInfo, error) {
+func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, device *DeviceType, opts ...DownloadOption) (ModelInfo, error) {
 	var config downloadConfig
 	for _, opt := range opts {
 		opt(&config)
 	}
 
-	modelInfo, err := m.GetModelInfo(ctx, aliasorModelID)
+	modelInfo, err := m.GetModelInfo(ctx, aliasorModelID, device)
 	if err != nil {
 		return ModelInfo{}, err
 	}
@@ -524,6 +578,7 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 		Model: DownloadRequestModelInfo{
 			Name:           modelInfo.ID,
 			URI:            modelInfo.URI,
+			Publisher:      modelInfo.Publisher,
 			ProviderType:   modelInfo.ProviderType + "Local",
 			PromptTemplate: modelInfo.PromptTemplate,
 		},
@@ -541,8 +596,8 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 		return ModelInfo{}, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
 	m.Logger.InfoContext(ctx, "downloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return ModelInfo{}, err
@@ -577,8 +632,9 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 }
 
 // LoadModel loads a previously downloaded model into memory for inference.
-// The model must be downloaded first using DownloadModel.
-// Loading may take significant time for large models.
+// The model must be downloaded first using DownloadModel. The optional device
+// parameter allows targeting a specific device type; pass nil to use the
+// Manager's default selection. Loading may take significant time for large models.
 //
 // The function automatically selects the best execution provider based on:
 //   - Available hardware (GPU, NPU, CPU)
@@ -591,18 +647,18 @@ func (m *Manager) DownloadModel(ctx context.Context, aliasorModelID string, opts
 // Example:
 //
 //	// Load with default timeout
-//	modelInfo, err := manager.LoadModel(ctx, "qwen2.5-0.5b")
+//	modelInfo, err := manager.LoadModel(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
 //	// Load with custom timeout
-//	modelInfo, err := manager.LoadModel(ctx, "large-model",
+//	modelInfo, err := manager.LoadModel(ctx, "large-model", nil,
 //		foundrylocal.WithLoadTimeout(30*time.Minute))
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...LoadModelOption) (ModelInfo, error) {
+func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, device *DeviceType, opts ...LoadModelOption) (ModelInfo, error) {
 	config := loadModelConfig{
 		timeout: time.Minute * 10, // Default timeout
 	}
@@ -610,7 +666,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 		opt(&config)
 	}
 
-	modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID)
+	modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID, device)
 	if err != nil {
 		return ModelInfo{}, err
 	}
@@ -627,17 +683,12 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 	endpoint := *m.serviceURL.JoinPath("openai", "load", modelInfo.ID)
 
 	params := url.Values{}
+	// Note: The C# SDK still sets this value as "timeout", but the REST API specifies it as "ttl".
+	// See https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/reference/reference-rest#get-openailoadname
 	params.Set("ttl", fmt.Sprintf("%d", int64(config.timeout.Seconds())))
 
-	if modelInfo.Runtime.ExecutionProvider == ExecutionProviderCUDA || modelInfo.Runtime.ExecutionProvider == ExecutionProviderWebGPU {
-		hasCUDASupport := slices.ContainsFunc(localModelInfo, func(mi ModelInfo) bool {
-			return mi.Runtime.ExecutionProvider == ExecutionProviderCUDA
-		})
-		if hasCUDASupport {
-			params.Set("ep", "cuda")
-		} else {
-			params.Set("ep", strings.ToLower(string(modelInfo.Runtime.ExecutionProvider)))
-		}
+	if modelInfo.EPOverride != "" {
+		params.Set("ep", modelInfo.EPOverride)
 	}
 
 	endpoint.RawQuery = params.Encode()
@@ -656,8 +707,9 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 
 // DownloadModelWithProgress downloads a model and reports progress through a channel.
 // This is useful for long-running downloads where you want to show progress to users.
-// The returned channel will receive progress updates and will be closed when the
-// operation completes (successfully or with an error).
+// The optional device parameter behaves like in DownloadModel. The returned channel
+// will receive progress updates and will be closed when the operation completes
+// (successfully or with an error).
 //
 // The progress channel receives ModelDownloadProgress structs containing:
 //   - Percentage: Download progress (0-100)
@@ -667,7 +719,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 //
 // Example:
 //
-//	progressChan, err := manager.DownloadModelWithProgress(ctx, "qwen2.5-0.5b")
+//	progressChan, err := manager.DownloadModelWithProgress(ctx, "qwen2.5-0.5b", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
@@ -682,7 +734,7 @@ func (m *Manager) LoadModel(ctx context.Context, aliasOrModelID string, opts ...
 //		}
 //		fmt.Printf("Progress: %.1f%%\n", progress.Percentage)
 //	}
-func (m *Manager) DownloadModelWithProgress(ctx context.Context, aliasOrModelID string, opts ...DownloadOption) (<-chan ModelDownloadProgress, error) {
+func (m *Manager) DownloadModelWithProgress(ctx context.Context, aliasOrModelID string, device *DeviceType, opts ...DownloadOption) (<-chan ModelDownloadProgress, error) {
 	var config downloadConfig
 	for _, opt := range opts {
 		opt(&config)
@@ -700,7 +752,7 @@ func (m *Manager) DownloadModelWithProgress(ctx context.Context, aliasOrModelID 
 	go func() {
 		defer close(progressChan)
 
-		modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID)
+		modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID, device)
 		if err != nil {
 			progressChan <- NewDownloadError(err.Error())
 			return
@@ -721,6 +773,7 @@ func (m *Manager) DownloadModelWithProgress(ctx context.Context, aliasOrModelID 
 			Model: DownloadRequestModelInfo{
 				Name:           modelInfo.ID,
 				URI:            modelInfo.URI,
+				Publisher:      modelInfo.Publisher,
 				ProviderType:   modelInfo.ProviderType + "Local",
 				PromptTemplate: modelInfo.PromptTemplate,
 			},
@@ -853,34 +906,35 @@ func (m *Manager) ListLoadedModels(ctx context.Context) ([]ModelInfo, error) {
 	}
 
 	// Use a pointer to a slice to decode the JSON response
-	// This allows us to umarshal a "null" response as nil.
+	// This allows us to unmarshal a "null" response as nil.
 	var names *[]string
 	if err = json.NewDecoder(resp.Body).Decode(&names); err != nil || names == nil {
-		return nil, err
+		return nil, ErrReadLoadedModels
 	}
 	return m.fetchModelInfo(ctx, *names...)
 }
 
 // UnloadModel removes a model from memory, freeing up resources.
-// The model remains cached locally and can be loaded again later.
-// This operation is forced, meaning it will unload the model even if it's currently in use.
+// The model remains cached locally and can be loaded again later. The optional
+// device parameter controls alias resolution; pass nil for the default behavior.
+// Set force to true to unload the model even if it's currently in use.
 //
 // Example:
 //
-//	if err := manager.UnloadModel(ctx, "qwen2.5-0.5b"); err != nil {
+//	if err := manager.UnloadModel(ctx, "qwen2.5-0.5b", nil, true); err != nil {
 //		log.Printf("Failed to unload model: %v", err)
 //	} else {
 //		fmt.Println("Model unloaded successfully")
 //	}
-func (m *Manager) UnloadModel(ctx context.Context, aliasOrModelID string) error {
-	modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID)
+func (m *Manager) UnloadModel(ctx context.Context, aliasOrModelID string, device *DeviceType, force bool) error {
+	modelInfo, err := m.GetModelInfo(ctx, aliasOrModelID, device)
 	if err != nil {
 		return err
 	}
 
 	endpoint := m.serviceURL.JoinPath("openai", "unload", modelInfo.ID)
 	params := url.Values{}
-	params.Set("force", "true")
+	params.Set("force", strconv.FormatBool(force))
 	endpoint.RawQuery = params.Encode()
 	m.Logger.InfoContext(ctx, "unloading model", "alias", modelInfo.Alias, "modelID", modelInfo.ID)
 	resp, err := m.client.Get(endpoint.String())
@@ -897,48 +951,47 @@ func (m *Manager) UnloadModel(ctx context.Context, aliasOrModelID string) error 
 
 // GetLatestModelInfo retrieves the latest version of a model by its alias or ID.
 // If the input contains a version suffix (":"), it attempts to find an exact match first.
-// Otherwise, it delegates to GetModelInfo to find the latest version.
+// Otherwise, it delegates to GetModelInfo to find the latest version. The optional
+// device parameter scopes alias lookups to a specific device type; pass nil to allow any.
 //
 // Example:
 //
 //	// Get latest version of a model by alias
-//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5")
+//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
 //	// Get specific version
-//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5:1")
+//	modelInfo, err := manager.GetLatestModelInfo(ctx, "qwen2.5:1", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-func (m *Manager) GetLatestModelInfo(ctx context.Context, aliasOrModelID string) (ModelInfo, error) {
+func (m *Manager) GetLatestModelInfo(ctx context.Context, aliasOrModelID string, device *DeviceType) (ModelInfo, error) {
 	if aliasOrModelID == "" {
 		return ModelInfo{}, fmt.Errorf("aliasOrModelID cannot be empty")
 	}
 
-	catalog, err := m.getCatalogMap(ctx)
-	if err != nil {
-		return ModelInfo{}, err
-	}
-
-	// If alias or id without version
-	if strings.Contains(aliasOrModelID, ":") {
-		modelInfo, ok := catalog[aliasOrModelID]
-		// If there is an exact match in catalog, return it directly
-		if ok {
-			return modelInfo, nil
-		}
-
-		// Otherwise, GetModelInfo will get the latest version
-		return m.GetModelInfo(ctx, aliasOrModelID)
-	}
 	idWithoutVersion := strings.Split(aliasOrModelID, ":")[0]
-	return m.GetModelInfo(ctx, idWithoutVersion)
+	return m.GetModelInfo(ctx, idWithoutVersion, device)
 }
 
-func (m *Manager) IsModelUpgradable(ctx context.Context, aliasOrModelID string) (bool, error) {
-	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID)
+// IsModelUpgradable checks if a model has a newer version available for upgrade.
+// Returns true if an upgrade is available, false if the model is current or not found.
+// The optional device parameter matches the semantics of GetLatestModelInfo; pass nil
+// to consider any device. This method compares the locally cached version against
+// the latest available version.
+//
+// Example:
+//
+//	upgradable, err := manager.IsModelUpgradable(ctx, "qwen2.5", nil)
+//	if err != nil {
+//		log.Printf("Error checking upgrade: %v", err)
+//	} else if upgradable {
+//		log.Println("Upgrade available")
+//	}
+func (m *Manager) IsModelUpgradable(ctx context.Context, aliasOrModelID string, device *DeviceType) (bool, error) {
+	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID, device)
 	if err != nil {
 		if errors.Is(err, ErrModelNotInCatalog) {
 			// Model not found in catalog
@@ -973,23 +1026,25 @@ func (m *Manager) IsModelUpgradable(ctx context.Context, aliasOrModelID string) 
 
 // UpgradeModel upgrades a model to its latest available version by downloading it.
 // This is a convenience method that combines GetLatestModelInfo and DownloadModel.
-// If a token is provided, it will be used for authentication when downloading private models.
+// The optional device parameter filters alias lookups to the desired device type; pass nil
+// to use the default behavior. If a token is provided, it will be used for authentication
+// when downloading private models.
 //
 // Example:
 //
 //	// Upgrade a public model
-//	modelInfo, err := manager.UpgradeModel(ctx, "qwen2.5", "")
+//	modelInfo, err := manager.UpgradeModel(ctx, "qwen2.5", nil, "")
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
 //	// Upgrade a private model with token
-//	modelInfo, err := manager.UpgradeModel(ctx, "private-model", "your-token")
+//	modelInfo, err := manager.UpgradeModel(ctx, "private-model", nil, "your-token")
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-func (m *Manager) UpgradeModel(ctx context.Context, aliasOrModelID, token string) (ModelInfo, error) {
-	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID)
+func (m *Manager) UpgradeModel(ctx context.Context, aliasOrModelID string, device *DeviceType, token string) (ModelInfo, error) {
+	modelInfo, err := m.GetLatestModelInfo(ctx, aliasOrModelID, device)
 	if err != nil {
 		return ModelInfo{}, err
 	}
@@ -997,7 +1052,7 @@ func (m *Manager) UpgradeModel(ctx context.Context, aliasOrModelID, token string
 	if token != "" {
 		opts = append(opts, WithToken(token))
 	}
-	mi, err := m.DownloadModel(ctx, modelInfo.ID, opts...)
+	mi, err := m.DownloadModel(ctx, modelInfo.ID, device, opts...)
 	if err != nil {
 		return ModelInfo{}, ErrModelUpgradeFailed
 	}
@@ -1012,7 +1067,7 @@ func (m *Manager) UpgradeModel(ctx context.Context, aliasOrModelID, token string
 func (m *Manager) fetchModelInfo(ctx context.Context, aliasesOrModelIDs ...string) ([]ModelInfo, error) {
 	modelInfos := make([]ModelInfo, 0, len(aliasesOrModelIDs))
 	for _, aliasOrID := range aliasesOrModelIDs {
-		model, err := m.GetModelInfo(ctx, aliasOrID)
+		model, err := m.GetModelInfo(ctx, aliasOrID, nil)
 		if err != nil {
 			if errors.Is(err, ErrModelNotInCatalog) {
 				m.Logger.DebugContext(ctx, "model not found in catalog", "aliasOrID", aliasOrID)
@@ -1023,71 +1078,6 @@ func (m *Manager) fetchModelInfo(ctx context.Context, aliasesOrModelIDs ...strin
 		modelInfos = append(modelInfos, model)
 	}
 	return modelInfos, nil
-}
-
-// getCatalogMap builds and caches a map from model IDs and aliases to ModelInfo structs.
-// The map includes direct model ID lookups and alias resolution with priority-based selection.
-// When multiple models share the same alias, the best candidate is chosen based on:
-//  1. Execution provider priority (lower priority values are preferred)
-//  2. Version number (higher versions are preferred as tie-breakers)
-//
-// The map is cached after the first call until RefreshCatalog is called.
-func (m *Manager) getCatalogMap(ctx context.Context) (map[string]ModelInfo, error) {
-	if m.catalogMap != nil {
-		return m.catalogMap, nil
-	}
-
-	models, err := m.ListCatalogModels(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	dict := make(map[string]ModelInfo)
-	aliasCandidates := make(map[string][]ModelInfo)
-
-	for _, model := range models {
-		dict[model.ID] = model
-		if model.Alias != "" {
-			// Use lower-cased key for case-insensitive grouping
-			key := strings.ToLower(model.Alias)
-			if _, ok := aliasCandidates[key]; !ok {
-				aliasCandidates[key] = make([]ModelInfo, 0, 1)
-			}
-			aliasCandidates[key] = append(aliasCandidates[key], model)
-		}
-	}
-
-	for k, v := range aliasCandidates {
-		alias := k
-		candidates := v
-		bestCandidate := aggregate(candidates, func(best, current ModelInfo) ModelInfo {
-			bestPriority, ok := m.priorityMap[best.Runtime.ExecutionProvider]
-			if !ok {
-				bestPriority = math.MaxInt
-			}
-			currentPriority, ok := m.priorityMap[current.Runtime.ExecutionProvider]
-			if !ok {
-				currentPriority = math.MaxInt
-			}
-
-			if currentPriority < bestPriority {
-				return current
-			}
-
-			if currentPriority == bestPriority {
-				bestVersion := GetVersion(best.ID)
-				currentVersion := GetVersion(current.ID)
-				if currentVersion > bestVersion {
-					return current
-				}
-			}
-			return best
-		})
-		dict[alias] = bestCandidate
-	}
-
-	m.catalogMap = dict
-	return m.catalogMap, nil
 }
 
 // ensureServiceRunning starts the Foundry Local service if it's not already running
@@ -1170,22 +1160,4 @@ func matchAliasOrId(aliasOrModelID string) func(modelInfo ModelInfo) bool {
 // Returns true for status codes in the range 200-299, false otherwise.
 func ensureSuccessStatusCode(resp *http.Response) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
-}
-
-// aggregate applies a binary function to reduce a slice of items to a single value.
-// The function starts with the first item and applies the function with each subsequent item.
-// Panics if called with an empty slice.
-func aggregate[T any](items []T, fn func(T, T) T) T {
-	if len(items) == 0 {
-		panic("aggregate called with empty items")
-	}
-
-	res := items[0]
-	if len(items) > 1 {
-		items = items[1:]
-		for _, i := range items {
-			res = fn(res, i)
-		}
-	}
-	return res
 }

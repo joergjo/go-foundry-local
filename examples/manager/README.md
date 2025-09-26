@@ -12,6 +12,7 @@ This example demonstrates comprehensive usage of the `foundrylocal.Manager` type
 2. **Model Discovery**
    - Listing available models in the catalog
    - Getting detailed information about specific models and model updates
+   - Selecting execution devices with optional `device *foundrylocal.DeviceType` filters
    - Checking model execution providers and device requirements
 
 3. **Model Management**
@@ -58,10 +59,10 @@ The example will walk through each operation step by step, showing:
 - `manager.StartService()` - Start the Foundry Local service
 - `manager.StopService()` - Stop the service
 - `manager.ListCatalogModels()` - Get all available models
-- `manager.GetModelInfo()` - Get specific model information
-- `manager.DownloadModel()` - Download a model
-- `manager.DownloadModelWithProgress()` - Download with progress reporting
-- `manager.LoadModel()` - Load a model for inference
-- `manager.UnloadModel()` - Unload a model from memory
+- `manager.GetModelInfo(ctx, aliasOrModelID, device)` - Get specific model information with optional device filtering
+- `manager.DownloadModel(ctx, aliasOrModelID, device)` - Download a model for a preferred device
+- `manager.DownloadModelWithProgress(ctx, aliasOrModelID, device)` - Download with progress reporting
+- `manager.LoadModel(ctx, aliasOrModelID, device)` - Load a model for inference on a specific device
+- `manager.UnloadModel(ctx, modelID, device, force)` - Unload a model from memory
 - `manager.ListCachedModels()` - List downloaded models
 - `manager.ListLoadedModels()` - List models in memory

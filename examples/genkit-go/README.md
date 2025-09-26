@@ -5,7 +5,7 @@ This example demonstrates how to integrate the Foundry Local SDK with Google's [
 ## What This Example Shows
 
 1. **Foundry Local Integration**
-   - Starting a specific model using the convenience `StartModel()` function
+   - Starting a specific model using the convenience `StartModel(ctx, alias, device)` function (pass `nil` for default device selection)
    - Configuring the OpenAI endpoint for Genkit compatibility
    - Proper service cleanup and resource management
 

@@ -6,7 +6,7 @@ replace github.com/joergjo/go-foundry-local/foundrylocal => ../../foundrylocal
 
 require (
 	github.com/firebase/genkit/go v1.0.4
-	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20250810125013-8e74e6d31fdd
+	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20250922092026-a515b2dad948
 	github.com/openai/openai-go v1.8.2
 )
 

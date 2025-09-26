@@ -101,7 +101,7 @@ func main() {
 	possibleModels := []string{"phi-3.5-mini", "qwen2.5-0.5b", "Phi-3.5-mini-instruct-generic-gpu"}
 
 	for _, modelName := range possibleModels {
-		modelInfo, err := manager.GetModelInfo(ctx, modelName)
+		modelInfo, err := manager.GetModelInfo(ctx, modelName, nil)
 		if err != nil {
 			fmt.Printf("   ⚠ Error checking model %s: %v\n", modelName, err)
 			continue
@@ -111,7 +111,7 @@ func main() {
 			fmt.Printf("   ✓ Found model: %s\n", modelInfo.DisplayName)
 			fmt.Printf("     • ID: %s\n", modelInfo.ID)
 			fmt.Printf("     • Provider: %s\n", modelInfo.ProviderType)
-			fmt.Printf("     • Size: %d MB\n", modelInfo.FileSizeMb)
+			fmt.Printf("     • Size: %d MB\n", modelInfo.FileSizeMB)
 			fmt.Printf("     • Execution Provider: %s\n", modelInfo.Runtime.ExecutionProvider)
 			fmt.Printf("     • Device Type: %s\n", modelInfo.Runtime.DeviceType)
 			break
@@ -130,7 +130,7 @@ func main() {
 
 	// Example 5: Check if model is upgradable
 	fmt.Println("\n5. Checking if model is upgradable...")
-	isUpgradable, err := manager.IsModelUpgradable(ctx, targetModel)
+	isUpgradable, err := manager.IsModelUpgradable(ctx, targetModel, nil)
 	if err != nil {
 		fmt.Printf("   ⚠ Failed to check if model is upgradable: %v\n", err)
 	} else {
@@ -174,7 +174,7 @@ func main() {
 		fmt.Printf("   • Downloading model: %s\n", targetModel)
 
 		// Download with progress reporting
-		progressChan, err := manager.DownloadModelWithProgress(ctx, targetModel)
+		progressChan, err := manager.DownloadModelWithProgress(ctx, targetModel, nil)
 		if err != nil {
 			log.Fatalf("Failed to start download: %v", err)
 		}
@@ -231,7 +231,7 @@ func main() {
 		fmt.Printf("   • Model %s is already loaded\n", targetModel)
 	} else {
 		fmt.Printf("   • Loading model: %s\n", targetModel)
-		loadedModel, err := manager.LoadModel(ctx, targetModel,
+		loadedModel, err := manager.LoadModel(ctx, targetModel, nil,
 			foundrylocal.WithLoadTimeout(5*time.Minute))
 		if err != nil {
 			log.Printf("   ⚠ Failed to load model: %v", err)
@@ -240,7 +240,7 @@ func main() {
 
 			// Demonstrate unloading
 			fmt.Printf("   • Unloading model: %s\n", targetModel)
-			if err := manager.UnloadModel(ctx, targetModel); err != nil {
+			if err := manager.UnloadModel(ctx, targetModel, nil, false); err != nil {
 				log.Printf("   ⚠ Failed to unload model: %v", err)
 			} else {
 				fmt.Printf("   ✓ Model unloaded successfully\n")

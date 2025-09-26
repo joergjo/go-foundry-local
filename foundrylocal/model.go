@@ -14,7 +14,7 @@ type Runtime struct {
 	// DeviceType indicates the preferred device type for execution (CPU, GPU, NPU).
 	DeviceType DeviceType `json:"deviceType"`
 	// ExecutionProvider specifies the execution provider (CPU, CUDA, WebGPU, QNN).
-	ExecutionProvider ExecutionProvider `json:"executionProvider"`
+	ExecutionProvider string `json:"executionProvider"`
 }
 
 // ModelSettings contains model-specific configuration parameters.
@@ -40,15 +40,15 @@ type ModelInfo struct {
 	// ModelType describes the type of model (e.g., "Language Model").
 	ModelType string `json:"modelType"`
 	// PromptTemplate defines how to format prompts for this model.
-	PromptTemplate PromptTemplate `json:"promptTemplate"`
+	PromptTemplate *PromptTemplate `json:"promptTemplate,omitzero"`
 	// Publisher is the organization that published the model.
 	Publisher string `json:"publisher"`
 	// Task describes the primary task the model is designed for.
 	Task string `json:"task"`
 	// Runtime specifies the execution requirements and preferences.
 	Runtime Runtime `json:"runtime"`
-	// FileSizeMb is the approximate download size in megabytes.
-	FileSizeMb int64 `json:"fileSizeMb"`
+	// FileSizeMB is the approximate download size in megabytes.
+	FileSizeMB int64 `json:"fileSizeMb"`
 	// ModelSettings contains model-specific configuration.
 	ModelSettings ModelSettings `json:"modelSettings"`
 	// Alias is an alternative name that can be used to reference this model.
@@ -65,6 +65,8 @@ type ModelInfo struct {
 	MaxOutputTokens int `json:"maxOutputTokens"`
 	// MinFLVersion specifies the minimum Foundry Local version required to use this model.
 	MinFLVersion string `json:"minFLVersion"`
+	// EPOverride specifies an execution provider override to apply when loading the model.
+	EPOverride string `json:"epOverride,omitzero"`
 }
 
 // DownloadRequestModelInfo contains the subset of model information needed for download requests.
@@ -74,10 +76,12 @@ type DownloadRequestModelInfo struct {
 	Name string `json:"Name"`
 	// URI is the download location.
 	URI string `json:"Uri"`
+	// Publisher is the organization that published the model.
+	Publisher string `json:"Publisher"`
 	// ProviderType is the model provider with "Local" suffix.
 	ProviderType string `json:"ProviderType"`
 	// PromptTemplate defines the prompt formatting for the model.
-	PromptTemplate PromptTemplate `json:"PromptTemplate"`
+	PromptTemplate *PromptTemplate `json:"PromptTemplate,omitzero"`
 }
 
 // DownloadRequest represents a request to download a model.

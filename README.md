@@ -27,8 +27,9 @@ go get github.com/joergjo/go-foundry-local/foundrylocal
 Foundry Local runtime version | Module version
 ------------------------------|-------------------
 0.4.92                        | >= 0.2.0, < 0.3.0
-0.5.117                       | >= 0.3.0
-0.6.87                        | >= 0.3.0
+0.5.117                       | >= 0.3.0, < 0.4.0
+0.6.87                        | >= 0.3.0, < 0.4.0
+0.7.117                       | >= 0.4.0
 
 ## Quick Start
 
@@ -126,7 +127,7 @@ go fmt ./...
 
 - Go 1.24.4 or later
 - Foundry Local must be [installed and available in your PATH](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/get-started)
-- macOS or Windows (developed and tested on macOS Sequoia 15.5 and later as well as Windows 11 24H2)
+- macOS or Windows (developed and tested on macOS Tahoe 26 and later as well as Windows 11 24H2)
 
 ## Contributing
 

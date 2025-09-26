@@ -39,7 +39,7 @@ func main() {
 	alias := "qwen2.5-1.5b"
 
 	// Start the Foundry Local service with the specified model alias.
-	m, err := foundrylocal.StartModel(context.Background(), alias)
+	m, err := foundrylocal.StartModel(context.Background(), alias, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -50,7 +50,7 @@ func main() {
 	}()
 
 	// Get model information to retrieve the model ID.
-	modelInfo, err := m.GetModelInfo(context.Background(), alias)
+	modelInfo, err := m.GetModelInfo(context.Background(), alias, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Error getting model info: %v", err))
 	}

@@ -15,7 +15,7 @@ import (
 func main() {
 	alias := "qwen2.5-1.5b"
 
-	m, err := foundrylocal.StartModel(context.Background(), alias)
+	m, err := foundrylocal.StartModel(context.Background(), alias, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +25,7 @@ func main() {
 		}
 	}()
 
-	modelInfo, err := m.GetModelInfo(context.Background(), alias)
+	modelInfo, err := m.GetModelInfo(context.Background(), alias, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Error getting model info: %v", err))
 	}
