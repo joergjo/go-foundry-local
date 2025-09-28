@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -35,7 +36,25 @@ type completionRequest struct {
 	Stream bool `json:"stream,omitzero"`
 }
 
+type loggingTransport struct {
+	InnerTransport http.RoundTripper
+}
+
+func (t *loggingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	bytes, _ := httputil.DumpRequestOut(r, true)
+	resp, err := t.InnerTransport.RoundTrip(r)
+	respBytes, _ := httputil.DumpResponse(resp, true)
+	bytes = append(bytes, respBytes...)
+	fmt.Printf("%s\n", bytes)
+	return resp, err
+}
+
 func main() {
+	lt := &loggingTransport{
+		InnerTransport: http.DefaultTransport,
+	}
+	http.DefaultTransport = lt
+
 	alias := "qwen2.5-1.5b"
 
 	// Start the Foundry Local service with the specified model alias.

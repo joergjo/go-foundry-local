@@ -3,6 +3,7 @@ go 1.25.1
 use (
 	./examples/chat-completion
 	./examples/chat-completion-streaming
+	./examples/chat-completion-streaming-sdk
 	./examples/genkit-go
 	./examples/manager
 	./foundrylocal
