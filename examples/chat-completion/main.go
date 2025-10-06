@@ -5,9 +5,8 @@ import (
 	"fmt"
 
 	"github.com/joergjo/go-foundry-local/foundrylocal"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
-	"github.com/openai/openai-go/v2/shared"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 func main() {
@@ -41,7 +40,7 @@ func main() {
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(question),
 		},
-		Model: shared.ChatModel(modelInfo.ID),
+		Model: modelInfo.ID,
 		Seed:  openai.Int(0),
 	}
 
