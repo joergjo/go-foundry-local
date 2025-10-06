@@ -5,29 +5,40 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"time"
 
 	"github.com/joergjo/go-foundry-local/foundrylocal"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/shared"
 )
 
 type loggingTransport struct {
-	InnerTransport http.RoundTripper
+	innerTransport http.RoundTripper
+	file           *os.File
 }
 
 func (t *loggingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	bytes, _ := httputil.DumpRequestOut(r, true)
-	resp, err := t.InnerTransport.RoundTrip(r)
+	resp, err := t.innerTransport.RoundTrip(r)
 	respBytes, _ := httputil.DumpResponse(resp, true)
 	bytes = append(bytes, respBytes...)
-	fmt.Printf("%s\n", bytes)
+	t.file.Write(bytes)
 	return resp, err
 }
 
 func main() {
+	timestamp := time.Now().Format("2006-01-02T15-04-05.000")
+	logFileName := fmt.Sprintf("httpdump-%s.log", timestamp)
+	logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to open log file: %v", err))
+	}
+	defer logFile.Close()
+
 	lt := &loggingTransport{
-		InnerTransport: http.DefaultTransport,
+		innerTransport: http.DefaultTransport,
+		file:           logFile,
 	}
 	http.DefaultTransport = lt
 
@@ -51,7 +62,13 @@ func main() {
 
 	baseURL := m.Endpoint().String()
 	fmt.Printf("Using Foundry Local endpoint at %s\n", baseURL)
-	client := openai.NewClient(option.WithBaseURL(baseURL), option.WithAPIKey(m.ApiKey))
+
+	clients := make([]openai.Client, 2)
+	clients[0] = openai.NewClient(option.WithBaseURL(baseURL), option.WithAPIKey(m.ApiKey))
+	clients[1] = openai.NewClient()
+	models := make([]string, 2)
+	models[0] = modelInfo.ID
+	models[1] = "gpt-5-mini"
 
 	question := "Write me a haiku"
 
@@ -59,32 +76,34 @@ func main() {
 	fmt.Println(question)
 	fmt.Println()
 
-	stream := client.Chat.Completions.NewStreaming(context.Background(), openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(question),
-		},
-		Model: shared.ChatModel(modelInfo.ID),
-		Seed:  openai.Int(0),
-	})
+	for i, client := range clients {
+		stream := client.Chat.Completions.NewStreaming(context.Background(), openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(question),
+			},
+			Model: models[i],
+			Seed:  openai.Int(0),
+		})
 
-	for stream.Next() {
-		completion := stream.Current()
-		if len(completion.Choices) > 0 {
-			switch completion.Choices[0].FinishReason {
-			case "stop":
-				break
-			case "length":
-				fmt.Print("\n[Truncated: max tokens reached]\n")
-			case "content_filter":
-				fmt.Print("\n[Truncated: content filtered]\n")
-			default:
-				fmt.Print(completion.Choices[0].Delta.Content)
+		for stream.Next() {
+			completion := stream.Current()
+			if len(completion.Choices) > 0 {
+				switch completion.Choices[0].FinishReason {
+				case "stop":
+					break
+				case "length":
+					fmt.Print("\n[Truncated: max tokens reached]\n")
+				case "content_filter":
+					fmt.Print("\n[Truncated: content filtered]\n")
+				default:
+					fmt.Print(completion.Choices[0].Delta.Content)
+				}
 			}
 		}
-	}
-	fmt.Println()
+		fmt.Println()
 
-	if err := stream.Err(); err != nil {
-		fmt.Println(err.Error())
+		if err := stream.Err(); err != nil {
+			fmt.Println(err.Error())
+		}
 	}
 }
