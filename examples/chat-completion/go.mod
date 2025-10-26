@@ -3,8 +3,8 @@ module github.com/joergjo/go-foundry-local/examples/chat-completion
 go 1.24.4
 
 require (
-	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20250926120018-4c65c0f7e212
-	github.com/openai/openai-go/v3 v3.1.0
+	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20251022080513-d84b6ef9e973
+	github.com/openai/openai-go/v3 v3.6.1
 )
 
 require (
