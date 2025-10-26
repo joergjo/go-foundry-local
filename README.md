@@ -26,11 +26,14 @@ go get github.com/joergjo/go-foundry-local/foundrylocal
 
 Foundry Local runtime version | Module version
 ------------------------------|-------------------
+0.8.94[^1]                    | >= 0.4.0
 0.7.120                       | >= 0.4.0
 0.7.117                       | >= 0.4.0
 0.6.87                        | >= 0.3.0, < 0.4.0
 0.5.117                       | >= 0.3.0, < 0.4.0
 0.4.92                        | >= 0.2.0, < 0.3.0
+
+[^1]: Foundry Local `0.8.94` is a Windows-only release 
 
 ## Quick Start
 
