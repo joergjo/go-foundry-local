@@ -15,5 +15,3 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 )
-
-replace github.com/openai/openai-go/v3 => /Users/joergjo/source/repos/openai-go
