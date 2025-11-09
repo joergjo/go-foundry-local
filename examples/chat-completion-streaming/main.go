@@ -101,7 +101,13 @@ func main() {
 			break
 		}
 		if err := json.NewDecoder(strings.NewReader(ev.Data)).Decode(&chunkData); err != nil {
-			fmt.Printf("Error decoding JSON: %v\n", err)
+			// Fix for Foundry local issue where finish_reason is not set.
+			// https://github.com/microsoft/Foundry-Local/issues/299
+			// This is a poor workaround, but serves demo purposes.
+			if ev.Data == "[DONE]" {
+				break
+			}
+			fmt.Printf("\nError decoding JSON %q: %v\n", ev.Data, err)
 			continue // skip this chunk if there's an error
 		}
 		if chunkData.Choices[0].FinishReason == "stop" {
