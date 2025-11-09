@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -36,25 +35,7 @@ type completionRequest struct {
 	Stream bool `json:"stream,omitzero"`
 }
 
-type loggingTransport struct {
-	InnerTransport http.RoundTripper
-}
-
-func (t *loggingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	bytes, _ := httputil.DumpRequestOut(r, true)
-	resp, err := t.InnerTransport.RoundTrip(r)
-	respBytes, _ := httputil.DumpResponse(resp, true)
-	bytes = append(bytes, respBytes...)
-	fmt.Printf("%s\n", bytes)
-	return resp, err
-}
-
 func main() {
-	lt := &loggingTransport{
-		InnerTransport: http.DefaultTransport,
-	}
-	http.DefaultTransport = lt
-
 	alias := "qwen2.5-1.5b"
 
 	// Start the Foundry Local service with the specified model alias.
@@ -120,7 +101,13 @@ func main() {
 			break
 		}
 		if err := json.NewDecoder(strings.NewReader(ev.Data)).Decode(&chunkData); err != nil {
-			fmt.Printf("Error decoding JSON: %v\n", err)
+			// Fix for Foundry local issue where finish_reason is not set.
+			// https://github.com/microsoft/Foundry-Local/issues/299
+			// This is a poor workaround, but serves demo purposes.
+			if ev.Data == "[DONE]" {
+				break
+			}
+			fmt.Printf("\nError decoding JSON %q: %v\n", ev.Data, err)
 			continue // skip this chunk if there's an error
 		}
 		if chunkData.Choices[0].FinishReason == "stop" {
