@@ -26,6 +26,7 @@ go get github.com/joergjo/go-foundry-local/foundrylocal
 
 Foundry Local runtime version | Module version
 ------------------------------|-------------------
+0.8.103                       | >= 0.4.0
 0.8.101                       | >= 0.4.0
 0.8.94[^1]                    | >= 0.4.0
 0.7.120                       | >= 0.4.0
