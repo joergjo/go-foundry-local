@@ -95,7 +95,7 @@ Comprehensive demonstration of all Manager functionality including:
 - Error handling best practices
 
 ### [Chat Completion](examples/chat-completion/)
-Shows how to use a model for chat completions with the official OpenAI Go client:
+Shows how to use a model for chat completions with the official OpenAI Go SDK:
 - Starting a model
 - Configuring the OpenAI client for Foundry Local
 - Making standard OpenAI-compatible API calls
@@ -106,6 +106,14 @@ Demonstrates real-time streaming chat completions:
 - Server-Sent Events (SSE) handling
 - Real-time response display
 - Stream termination handling
+
+### [Streaming Chat Completion with SDK](examples/chat-completion-streaming-sdk/)
+Demonstrates real-time streaming chat completions with the official OpenAI Go SDK:
+- Starting a model
+- Configuring the OpenAI client for Foundry Local
+- Making standard OpenAI-compatible API calls
+- Streaming responses
+
 
 ### [Google Genkit Go Integration](examples/genkit-go/)
 Shows how to integrate with Google's Genkit Go framework:
