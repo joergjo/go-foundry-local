@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/joergjo/go-foundry-local/foundrylocal v0.0.0-20251128072227-7cf19947c346
-	github.com/openai/openai-go/v3 v3.12.0
+	github.com/openai/openai-go/v3 v3.15.0
 )
 
 require (
