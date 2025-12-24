@@ -1,6 +1,6 @@
 # Chat Completion Streaming Example
 
-This example demonstrates how to use the `go-foundry-local` SDK with streaming chat completions. It shows how to send a chat request to a locally running AI model and receive the response as a real-time stream using Server-Sent Events (SSE).
+This example demonstrates how to use the `go-foundry-local` SDK with streaming chat completions. It shows how to send a chat request to a locally running AI model and receive the response as a real-time stream using Server-Sent Events (SSE). This example is useful when you need fine-grained control over the HTTP requests or want to understand the underlying API interactions.
 
 ## What This Example Shows
 
@@ -75,9 +75,5 @@ Peace in nature's song.
 ## Alternative Approaches
 
 While this example shows direct HTTP API usage, you could also use:
-- The official OpenAI Go SDK (as shown in the `chat-completion` example)
-- Other OpenAI-compatible client libraries that support streaming
+- The official OpenAI Go SDK (as shown in the `chat-completion-streaming-sdk` example)
 
-> [This issue](https://github.com/microsoft/Foundry-Local/issues/144) currently prevents streaming to work with the official OpenAI SDK. 
-
-This example is useful when you need fine-grained control over the HTTP requests or want to understand the underlying API interactions.
